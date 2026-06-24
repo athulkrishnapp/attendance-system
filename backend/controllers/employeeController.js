@@ -1,4 +1,5 @@
 const employeeModel = require("../models/employeeModel");
+const bcrypt = require("bcryptjs"); // 1. Import bcrypt
 
 const getEmployees = async (req, res) => {
   try {
@@ -9,9 +10,19 @@ const getEmployees = async (req, res) => {
 
 const createEmployee = async (req, res) => {
   try {
-    const result = await employeeModel.createEmployee(req.body);
+    // 2. Hash the password before saving
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(req.body.password, salt);
+    
+    // 3. Replace the plain text password with the hashed one
+    const employeeData = { ...req.body, password: hashedPassword };
+
+    const result = await employeeModel.createEmployee(employeeData);
     res.json(result.rows[0]);
-  } catch (err) { res.status(500).send("Error"); }
+  } catch (err) { 
+    console.error(err);
+    res.status(500).send("Error"); 
+  }
 };
 
 const updateEmployee = async (req, res) => {

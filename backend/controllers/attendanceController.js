@@ -14,12 +14,17 @@ exports.uploadAttendance = async (req, res) => {
     };
 
     const holidaysRes = await pool.query("SELECT holiday_date, description FROM company_holidays");
-    // Create an easy-to-check dictionary of holidays: { "2026-08-15": "Independence Day" }
     const holidayMap = {};
     holidaysRes.rows.forEach(h => {
-      // Format date nicely to YYYY-MM-DD
       const dateStr = h.holiday_date.toISOString().split('T')[0];
       holidayMap[dateStr] = h.description;
+    });
+
+    // 👉 Fetch all employees and map their employee_code to their database ID
+    const employeesRes = await pool.query("SELECT id, employee_code FROM employees");
+    const codeToIdMap = {};
+    employeesRes.rows.forEach(emp => {
+      codeToIdMap[emp.employee_code] = emp.id;
     });
 
     // 2. Read the uploaded Excel file
@@ -36,18 +41,27 @@ exports.uploadAttendance = async (req, res) => {
     const dailySummaries = {};
 
     for (const row of data) {
+      // Convert the Excel 'employee_code' (e.g., EMP002) into the actual DB id (e.g., 7)
+      const actualEmployeeId = codeToIdMap[row.employee_code];
+
+      // If the code in Excel doesn't match any employee in the DB, skip it safely
+      if (!actualEmployeeId) {
+        console.warn(`Skipping row: Unknown employee_code ${row.employee_code}`);
+        continue; 
+      }
+
       await pool.query(
         "INSERT INTO attendance_logs (employee_id, scan_time, source, device_id) VALUES ($1, $2, $3, $4)",
-        [row.employee_id, row.scan_time, 'EXCEL', 'MAIN_GATE']
+        [actualEmployeeId, row.scan_time, 'EXCEL', 'MAIN_GATE']
       );
 
       const scanDateObj = new Date(row.scan_time);
       const dateKey = scanDateObj.toISOString().split('T')[0]; 
-      const summaryKey = `${row.employee_id}_${dateKey}`;
+      const summaryKey = `${actualEmployeeId}_${dateKey}`;
 
       if (!dailySummaries[summaryKey]) {
         dailySummaries[summaryKey] = {
-          employee_id: row.employee_id,
+          employee_id: actualEmployeeId,
           attendance_date: dateKey,
           scans: []
         };
@@ -66,24 +80,19 @@ exports.uploadAttendance = async (req, res) => {
       const diffMs = lastOut - firstIn;
       const workingHours = parseFloat((diffMs / (1000 * 60 * 60)).toFixed(2));
 
-      // Check Weekends & Holidays
-      const dayOfWeek = firstIn.getDay(); // 0 is Sunday, 6 is Saturday
+      const dayOfWeek = firstIn.getDay(); 
       const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
       const holidayName = holidayMap[record.attendance_date];
 
       let remarks = "";
       
-      // Calculate Lateness based on Company Settings
-      // Convert shift start time (e.g. "09:00:00") into a comparable Date object for that specific day
       const expectedStartTime = new Date(`${record.attendance_date}T${settings.shift_start_time}`);
-      // Add Grace Period
       const maxGraceTime = new Date(expectedStartTime.getTime() + settings.grace_period_minutes * 60000);
 
       if (firstIn > maxGraceTime && !isWeekend && !holidayName) {
         remarks = "LATE ARRIVAL";
       }
 
-      // Dynamic Status based on required hours
       let status = 'ABSENT';
       if (workingHours >= settings.required_working_hours) {
         status = 'PRESENT';
@@ -93,7 +102,6 @@ exports.uploadAttendance = async (req, res) => {
         status = 'SHORT_LEAVE';
       }
 
-      // Overrides for Overtime (Working on a weekend or holiday)
       if (isWeekend && workingHours > 0) {
         status = 'OVERTIME';
         remarks = "Weekend Shift";
