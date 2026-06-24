@@ -53,12 +53,12 @@ const Sidebar = () => {
 };
 
 const styles = {
-  sidebar: { width: "250px", backgroundColor: "#1e293b", color: "white", display: "flex", flexDirection: "column", padding: "20px", height: "100vh", position: "fixed", top: 0, left: 0 },
-  brand: { fontSize: "24px", marginBottom: "40px", color: "#38bdf8" },
-  nav: { display: "flex", flexDirection: "column", gap: "15px", flexGrow: 1 },
-  link: { color: "#cbd5e1", textDecoration: "none", fontSize: "16px", padding: "10px", borderRadius: "6px", transition: "0.2s" },
-  activeLink: { color: "white", textDecoration: "none", fontSize: "16px", padding: "10px", backgroundColor: "#334155", borderRadius: "6px" },
-  logoutBtn: { backgroundColor: "#ef4444", color: "white", border: "none", padding: "12px", borderRadius: "6px", cursor: "pointer", fontWeight: "bold", marginTop: "auto" }
+  sidebar: { width: "260px", backgroundColor: "var(--secondary)", color: "var(--text-light)", display: "flex", flexDirection: "column", padding: "24px", height: "100vh", position: "fixed", top: 0, left: 0, boxShadow: "var(--shadow-md)" },
+  brand: { fontSize: "22px", fontWeight: "700", marginBottom: "40px", color: "var(--primary)", letterSpacing: "-0.5px" },
+  nav: { display: "flex", flexDirection: "column", gap: "8px", flexGrow: 1 },
+  link: { color: "#94a3b8", textDecoration: "none", fontSize: "15px", padding: "12px 16px", borderRadius: "8px", transition: "all 0.2s ease", fontWeight: "500" },
+  activeLink: { color: "var(--primary)", textDecoration: "none", fontSize: "15px", padding: "12px 16px", backgroundColor: "rgba(2, 132, 199, 0.1)", borderRadius: "8px", fontWeight: "600", borderLeft: "4px solid var(--primary)" },
+  logoutBtn: { backgroundColor: "transparent", color: "#ef4444", border: "1px solid #ef4444", padding: "12px", borderRadius: "8px", cursor: "pointer", fontWeight: "600", marginTop: "auto", transition: "0.2s" }
 };
 
 export default Sidebar;

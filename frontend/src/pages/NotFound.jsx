@@ -16,11 +16,44 @@ const NotFound = () => {
 };
 
 const styles = {
-  container: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", backgroundColor: "#f8fafc", fontFamily: "Arial, sans-serif", textAlign: "center" },
-  title: { fontSize: "120px", margin: "0", color: "#3b82f6", fontWeight: "bold" },
-  subtitle: { fontSize: "32px", margin: "10px 0", color: "#1e293b" },
-  text: { fontSize: "18px", color: "#64748b", marginBottom: "30px" },
-  btn: { backgroundColor: "#1e293b", color: "white", padding: "12px 24px", border: "none", borderRadius: "6px", fontSize: "16px", cursor: "pointer", fontWeight: "bold" }
+  container: { 
+    display: "flex", 
+    flexDirection: "column", 
+    alignItems: "center", 
+    justifyContent: "center", 
+    height: "100vh", 
+    backgroundColor: "var(--bg-main)", 
+    textAlign: "center",
+    padding: "20px"
+  },
+  title: { 
+    fontSize: "120px", 
+    margin: "0", 
+    color: "var(--primary)", 
+    fontWeight: "800",
+    lineHeight: "1"
+  },
+  subtitle: { 
+    fontSize: "32px", 
+    margin: "10px 0", 
+    color: "var(--text-main)" 
+  },
+  text: { 
+    fontSize: "18px", 
+    color: "var(--text-muted)", 
+    marginBottom: "30px" 
+  },
+  btn: { 
+    backgroundColor: "var(--secondary)", 
+    color: "white", 
+    padding: "14px 28px", 
+    border: "none", 
+    borderRadius: "var(--radius)", 
+    fontSize: "16px", 
+    cursor: "pointer", 
+    fontWeight: "600",
+    transition: "all 0.2s ease"
+  }
 };
 
 export default NotFound;

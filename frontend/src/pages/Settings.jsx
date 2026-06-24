@@ -29,7 +29,7 @@ const Settings = () => {
     e.preventDefault();
     try {
       await API.post("/settings/update", settings);
-      setMsg({ text: "Company Rules updated!", type: "success" });
+      setMsg({ text: "Company Rules updated successfully!", type: "success" });
       setTimeout(() => setMsg({ text: "", type: "" }), 3000);
     } catch (err) {
       setMsg({ text: "Failed to update rules", type: "error" });
@@ -41,15 +41,14 @@ const Settings = () => {
     try {
       await API.post("/settings/holiday", newHoliday);
       setNewHoliday({ holiday_date: "", description: "" });
-      fetchData(); // Refresh list
-      setMsg({ text: "Holiday added to Calendar!", type: "success" });
+      fetchData();
+      setMsg({ text: "Holiday added to calendar!", type: "success" });
       setTimeout(() => setMsg({ text: "", type: "" }), 3000);
     } catch (err) {
       setMsg({ text: "Failed to add holiday", type: "error" });
     }
   };
 
-  // Helper to format date cleanly
   const formatDate = (dateString) => new Date(dateString).toLocaleDateString();
 
   return (
@@ -68,7 +67,7 @@ const Settings = () => {
           <div style={styles.grid}>
             {/* Shift Rules Card */}
             <div style={styles.card}>
-              <h3>⚙️ Default Shift Rules</h3>
+              <h3 style={styles.cardTitle}>⚙️ Shift Rules</h3>
               <form onSubmit={handleSettingsUpdate} style={styles.form}>
                 <label style={styles.label}>Shift Start Time</label>
                 <input type="time" value={settings.shift_start_time} onChange={(e) => setSettings({...settings, shift_start_time: e.target.value})} style={styles.input} required />
@@ -88,10 +87,10 @@ const Settings = () => {
 
             {/* Holiday Calendar Card */}
             <div style={styles.card}>
-              <h3>📅 Add Company Holiday</h3>
+              <h3 style={styles.cardTitle}>📅 Company Holidays</h3>
               <form onSubmit={handleAddHoliday} style={styles.rowForm}>
                 <input type="date" value={newHoliday.holiday_date} onChange={(e) => setNewHoliday({...newHoliday, holiday_date: e.target.value})} style={styles.input} required />
-                <input type="text" placeholder="e.g. Christmas Day" value={newHoliday.description} onChange={(e) => setNewHoliday({...newHoliday, description: e.target.value})} style={styles.input} required />
+                <input type="text" placeholder="Description" value={newHoliday.description} onChange={(e) => setNewHoliday({...newHoliday, description: e.target.value})} style={styles.input} required />
                 <button type="submit" style={styles.addBtn}>Add</button>
               </form>
 
@@ -106,12 +105,10 @@ const Settings = () => {
                       <td style={styles.td}>{h.description}</td>
                     </tr>
                   ))}
-                  {holidays.length === 0 && <tr><td colSpan="2" style={{padding: "20px", textAlign: "center"}}>No holidays added yet.</td></tr>}
                 </tbody>
               </table>
             </div>
           </div>
-
         </div>
       </div>
     </div>
@@ -119,23 +116,24 @@ const Settings = () => {
 };
 
 const styles = {
-  layout: { display: "flex", minHeight: "100vh", backgroundColor: "#f8fafc", fontFamily: "Arial, sans-serif" },
-  main: { flexGrow: 1, marginLeft: "250px" },
+  layout: { display: "flex", minHeight: "100vh" },
+  main: { flexGrow: 1, marginLeft: "260px" },
   contentPadding: { padding: "0 40px 40px 40px" },
   grid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "30px" },
-  card: { backgroundColor: "white", padding: "25px", borderRadius: "10px", boxShadow: "0 2px 10px rgba(0,0,0,0.05)" },
-  form: { display: "flex", flexDirection: "column", gap: "10px", marginTop: "15px" },
-  rowForm: { display: "flex", gap: "10px", marginTop: "15px", marginBottom: "20px" },
-  label: { fontSize: "14px", color: "#475569", fontWeight: "bold" },
-  input: { padding: "10px", border: "1px solid #ccc", borderRadius: "4px", fontSize: "14px", flexGrow: 1 },
-  saveBtn: { backgroundColor: "#10b981", color: "white", border: "none", padding: "12px", borderRadius: "4px", cursor: "pointer", fontWeight: "bold", marginTop: "10px" },
-  addBtn: { backgroundColor: "#3b82f6", color: "white", border: "none", padding: "10px 20px", borderRadius: "4px", cursor: "pointer", fontWeight: "bold" },
-  table: { width: "100%", borderCollapse: "collapse", textAlign: "left", marginTop: "20px" },
-  th: { backgroundColor: "#f1f5f9", padding: "10px", borderBottom: "2px solid #e2e8f0", color: "#475569" },
-  tr: { borderBottom: "1px solid #e2e8f0" },
-  td: { padding: "10px", color: "#334155" },
-  successMsg: { marginBottom: "20px", padding: "15px", backgroundColor: "#d1fae5", color: "#065f46", borderRadius: "6px", fontWeight: "bold" },
-  errorMsg: { marginBottom: "20px", padding: "15px", backgroundColor: "#fee2e2", color: "#991b1b", borderRadius: "6px", fontWeight: "bold" }
+  card: { backgroundColor: "var(--bg-card)", padding: "24px", borderRadius: "var(--radius)", boxShadow: "var(--shadow-md)", border: "1px solid var(--border)" },
+  cardTitle: { color: "var(--text-main)", marginBottom: "20px" },
+  form: { display: "flex", flexDirection: "column", gap: "15px" },
+  rowForm: { display: "flex", gap: "10px", marginBottom: "20px" },
+  label: { fontSize: "14px", fontWeight: "600", color: "var(--text-muted)" },
+  input: { padding: "12px", border: "1px solid var(--border)", borderRadius: "6px", fontSize: "15px", flexGrow: 1, outline: "none" },
+  saveBtn: { backgroundColor: "var(--primary)", color: "white", border: "none", padding: "12px", borderRadius: "6px", cursor: "pointer", fontWeight: "600", marginTop: "10px" },
+  addBtn: { backgroundColor: "var(--primary)", color: "white", border: "none", padding: "10px 20px", borderRadius: "6px", cursor: "pointer", fontWeight: "600" },
+  table: { width: "100%", borderCollapse: "collapse", textAlign: "left" },
+  th: { backgroundColor: "var(--bg-main)", padding: "12px", borderBottom: "1px solid var(--border)", color: "var(--text-muted)", fontSize: "12px", textTransform: "uppercase" },
+  tr: { borderBottom: "1px solid var(--border)" },
+  td: { padding: "12px", color: "var(--text-main)", fontSize: "14px" },
+  successMsg: { marginBottom: "20px", padding: "15px", backgroundColor: "#f0fdf4", color: "#166534", borderRadius: "6px", fontWeight: "600" },
+  errorMsg: { marginBottom: "20px", padding: "15px", backgroundColor: "#fef2f2", color: "#991b1b", borderRadius: "6px", fontWeight: "600" }
 };
 
 export default Settings;

@@ -25,7 +25,7 @@ const LeaveApprovals = () => {
   const handleStatusUpdate = async (id, newStatus) => {
     try {
       await API.put("/leaves/update", { leave_id: id, status: newStatus });
-      fetchLeaves(); // Refresh the table
+      fetchLeaves();
     } catch (err) {
       alert("Failed to update status");
     }
@@ -39,12 +39,12 @@ const LeaveApprovals = () => {
         <div style={styles.contentPadding}>
           
           <header style={styles.header}>
-            <h2>Leave Request Inbox</h2>
-            <p style={{ color: "#64748b" }}>Review and manage employee time-off requests.</p>
+            <h2 style={styles.title}>Leave Request Inbox</h2>
+            <p style={styles.subtitle}>Review and manage employee time-off requests.</p>
           </header>
 
           <div style={styles.tableContainer}>
-            {loading ? <p style={{ padding: "20px" }}>Loading requests...</p> : (
+            {loading ? <p style={{ padding: "40px", textAlign: "center" }}>Loading requests...</p> : (
               <table style={styles.table}>
                 <thead>
                   <tr>
@@ -60,14 +60,14 @@ const LeaveApprovals = () => {
                   {leaves.map((l) => (
                     <tr key={l.id} style={styles.tr}>
                       <td style={styles.td}>
-                        <strong>{l.name}</strong> <br/>
-                        <span style={{ fontSize: "12px", color: "#64748b" }}>{l.employee_code}</span>
+                        <div style={{ fontWeight: "600" }}>{l.name}</div>
+                        <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>{l.employee_code}</div>
                       </td>
                       <td style={styles.td}>
                         <span style={styles.typeBadge}>{l.leave_type}</span>
                       </td>
                       <td style={styles.td}>
-                        {new Date(l.start_date).toLocaleDateString()} - <br/> 
+                        {new Date(l.start_date).toLocaleDateString()} to <br/> 
                         {new Date(l.end_date).toLocaleDateString()}
                       </td>
                       <td style={styles.td}>{l.reason}</td>
@@ -77,22 +77,22 @@ const LeaveApprovals = () => {
                         </span>
                       </td>
                       <td style={styles.td}>
-                        {l.status === 'PENDING' && (
-                          <div style={{ display: "flex", gap: "10px" }}>
+                        {l.status === 'PENDING' ? (
+                          <div style={{ display: "flex", gap: "8px" }}>
                             <button onClick={() => handleStatusUpdate(l.id, 'APPROVED')} style={styles.approveBtn}>Approve</button>
                             <button onClick={() => handleStatusUpdate(l.id, 'REJECTED')} style={styles.rejectBtn}>Reject</button>
                           </div>
+                        ) : (
+                          <span style={{ color: "var(--text-muted)", fontSize: "14px", fontStyle: "italic" }}>Processed</span>
                         )}
-                        {l.status !== 'PENDING' && <span style={{ color: "#94a3b8", fontSize: "14px" }}>Processed</span>}
                       </td>
                     </tr>
                   ))}
-                  {leaves.length === 0 && <tr><td colSpan="6" style={{textAlign: "center", padding: "20px"}}>No leave requests found.</td></tr>}
+                  {leaves.length === 0 && <tr><td colSpan="6" style={{textAlign: "center", padding: "40px", color: "var(--text-muted)"}}>No leave requests found.</td></tr>}
                 </tbody>
               </table>
             )}
           </div>
-
         </div>
       </div>
     </div>
@@ -100,21 +100,23 @@ const LeaveApprovals = () => {
 };
 
 const styles = {
-  layout: { display: "flex", minHeight: "100vh", backgroundColor: "#f8fafc", fontFamily: "Arial, sans-serif" },
-  main: { flexGrow: 1, marginLeft: "250px" },
+  layout: { display: "flex", minHeight: "100vh" },
+  main: { flexGrow: 1, marginLeft: "260px" },
   contentPadding: { padding: "0 40px 40px 40px" },
-  header: { marginBottom: "20px" },
-  tableContainer: { backgroundColor: "white", borderRadius: "8px", boxShadow: "0 2px 10px rgba(0,0,0,0.05)", overflow: "hidden" },
+  header: { marginBottom: "24px" },
+  title: { fontSize: "24px", fontWeight: "600", color: "var(--text-main)", margin: "0 0 5px 0" },
+  subtitle: { color: "var(--text-muted)", margin: 0 },
+  tableContainer: { backgroundColor: "var(--bg-card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-md)", overflow: "hidden", border: "1px solid var(--border)" },
   table: { width: "100%", borderCollapse: "collapse", textAlign: "left" },
-  th: { backgroundColor: "#f1f5f9", padding: "15px", borderBottom: "2px solid #e2e8f0", color: "#475569" },
-  tr: { borderBottom: "1px solid #e2e8f0" },
-  td: { padding: "15px", color: "#334155" },
-  typeBadge: { backgroundColor: "#e2e8f0", color: "#334155", padding: "4px 8px", borderRadius: "12px", fontSize: "12px", fontWeight: "bold" },
-  badgeApproved: { backgroundColor: "#d1fae5", color: "#065f46", padding: "4px 8px", borderRadius: "12px", fontSize: "12px", fontWeight: "bold" },
-  badgeRejected: { backgroundColor: "#fee2e2", color: "#991b1b", padding: "4px 8px", borderRadius: "12px", fontSize: "12px", fontWeight: "bold" },
-  badgePending: { backgroundColor: "#fef08a", color: "#854d0e", padding: "4px 8px", borderRadius: "12px", fontSize: "12px", fontWeight: "bold" },
-  approveBtn: { backgroundColor: "#10b981", color: "white", border: "none", padding: "6px 12px", borderRadius: "4px", cursor: "pointer", fontWeight: "bold" },
-  rejectBtn: { backgroundColor: "#ef4444", color: "white", border: "none", padding: "6px 12px", borderRadius: "4px", cursor: "pointer", fontWeight: "bold" }
+  th: { backgroundColor: "var(--bg-main)", padding: "16px", borderBottom: "1px solid var(--border)", color: "var(--text-muted)", fontSize: "14px", textTransform: "uppercase", letterSpacing: "0.5px" },
+  tr: { borderBottom: "1px solid var(--border)" },
+  td: { padding: "16px", color: "var(--text-main)", fontSize: "15px" },
+  typeBadge: { backgroundColor: "var(--bg-main)", color: "var(--text-main)", padding: "4px 10px", borderRadius: "20px", fontSize: "12px", fontWeight: "600" },
+  badgeApproved: { backgroundColor: "#d1fae5", color: "#065f46", padding: "4px 10px", borderRadius: "20px", fontSize: "12px", fontWeight: "600" },
+  badgeRejected: { backgroundColor: "#fee2e2", color: "#991b1b", padding: "4px 10px", borderRadius: "20px", fontSize: "12px", fontWeight: "600" },
+  badgePending: { backgroundColor: "#fef08a", color: "#854d0e", padding: "4px 10px", borderRadius: "20px", fontSize: "12px", fontWeight: "600" },
+  approveBtn: { backgroundColor: "#10b981", color: "white", border: "none", padding: "8px 16px", borderRadius: "6px", cursor: "pointer", fontWeight: "600", fontSize: "13px" },
+  rejectBtn: { backgroundColor: "#ef4444", color: "white", border: "none", padding: "8px 16px", borderRadius: "6px", cursor: "pointer", fontWeight: "600", fontSize: "13px" }
 };
 
 export default LeaveApprovals;

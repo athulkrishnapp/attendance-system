@@ -13,14 +13,9 @@ const Login = () => {
     setError("");
 
     try {
-      // 1. Send credentials to your backend
       const response = await API.post("/auth/login", { email, password });
-      
-      // 2. Save the token and user data
       localStorage.setItem("token", response.data.token);
       localStorage.setItem("user", JSON.stringify(response.data.user));
-
-      // 3. Redirect to the Admin Dashboard
       navigate("/dashboard");
     } catch (err) {
       setError(err.response?.data?.error || "Failed to login. Check credentials.");
@@ -30,12 +25,14 @@ const Login = () => {
   return (
     <div style={styles.container}>
       <div style={styles.card}>
-        <h2>System Login</h2>
+        <h2 style={styles.title}>System Login</h2>
+        <p style={styles.subtitle}>Enter your credentials to access the portal.</p>
+        
         {error && <p style={styles.error}>{error}</p>}
         
         <form onSubmit={handleLogin} style={styles.form}>
           <div style={styles.inputGroup}>
-            <label>Email</label>
+            <label style={styles.label}>Email Address</label>
             <input 
               type="email" 
               value={email} 
@@ -46,7 +43,7 @@ const Login = () => {
           </div>
           
           <div style={styles.inputGroup}>
-            <label>Password</label>
+            <label style={styles.label}>Password</label>
             <input 
               type="password" 
               value={password} 
@@ -56,22 +53,62 @@ const Login = () => {
             />
           </div>
 
-          <button type="submit" style={styles.button}>Login</button>
+          <button type="submit" style={styles.button}>Sign In</button>
         </form>
       </div>
     </div>
   );
 };
 
-// Quick inline styles for a professional look without requiring CSS frameworks right now
 const styles = {
-  container: { display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', backgroundColor: '#f4f7f6' },
-  card: { padding: '40px', backgroundColor: 'white', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', width: '100%', maxWidth: '400px' },
-  form: { display: 'flex', flexDirection: 'column', gap: '15px', marginTop: '20px' },
-  inputGroup: { display: 'flex', flexDirection: 'column', gap: '5px' },
-  input: { padding: '10px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '16px' },
-  button: { padding: '12px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '16px', fontWeight: 'bold' },
-  error: { color: 'red', fontSize: '14px', textAlign: 'center', backgroundColor: '#ffe6e6', padding: '10px', borderRadius: '4px' }
+  container: { 
+    display: 'flex', 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    height: '100vh', 
+    backgroundColor: 'var(--bg-main)' 
+  },
+  card: { 
+    padding: '40px', 
+    backgroundColor: 'var(--bg-card)', 
+    borderRadius: 'var(--radius)', 
+    boxShadow: 'var(--shadow-md)', 
+    width: '100%', 
+    maxWidth: '400px',
+    border: '1px solid var(--border)'
+  },
+  title: { margin: '0 0 8px 0', color: 'var(--text-main)', fontSize: '24px' },
+  subtitle: { margin: '0 0 24px 0', color: 'var(--text-muted)', fontSize: '14px' },
+  form: { display: 'flex', flexDirection: 'column', gap: '20px' },
+  inputGroup: { display: 'flex', flexDirection: 'column', gap: '8px' },
+  label: { fontSize: '14px', fontWeight: '600', color: 'var(--text-main)' },
+  input: { 
+    padding: '12px', 
+    borderRadius: '6px', 
+    border: '1px solid var(--border)', 
+    fontSize: '15px',
+    outline: 'none'
+  },
+  button: { 
+    padding: '14px', 
+    backgroundColor: 'var(--primary)', 
+    color: 'white', 
+    border: 'none', 
+    borderRadius: '6px', 
+    cursor: 'pointer', 
+    fontSize: '15px', 
+    fontWeight: '600',
+    marginTop: '10px'
+  },
+  error: { 
+    color: '#991b1b', 
+    fontSize: '14px', 
+    textAlign: 'center', 
+    backgroundColor: '#fef2f2', 
+    padding: '12px', 
+    borderRadius: '6px',
+    border: '1px solid #fecaca'
+  }
 };
 
 export default Login;

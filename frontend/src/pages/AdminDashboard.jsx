@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import API from "../services/api";
 
-// Import our new reusable components
+// Import our reusable components
 import Sidebar from "../components/Sidebar";
 import Navbar from "../components/Navbar";
 
@@ -63,19 +63,19 @@ const AdminDashboard = () => {
           {/* Stats Cards */}
           <div style={styles.statsGrid}>
             <div style={styles.card}>
-              <h3>Total Employees</h3>
+              <h3 style={styles.cardTitle}>Total Employees</h3>
               <p style={styles.statNumber}>{stats.totalEmployees}</p>
             </div>
             <div style={styles.card}>
-              <h3>Total Attendance Logs</h3>
+              <h3 style={styles.cardTitle}>Total Attendance Logs</h3>
               <p style={styles.statNumber}>{stats.totalAttendance}</p>
             </div>
           </div>
 
           {/* Upload Section */}
           <div style={styles.uploadSection}>
-            <h2>Upload Daily Attendance</h2>
-            <p style={{ color: "#64748b" }}>Select the biometric Excel file (.xlsx) to process today's logs.</p>
+            <h2 style={styles.sectionTitle}>Upload Daily Attendance</h2>
+            <p style={styles.sectionSubtitle}>Select the biometric Excel file (.xlsx) to process today's logs.</p>
             
             <form onSubmit={handleUpload} style={styles.uploadForm}>
               <input 
@@ -87,7 +87,7 @@ const AdminDashboard = () => {
               <button 
                 type="submit" 
                 disabled={!file || uploadStatus.loading}
-                style={file ? styles.uploadBtnActive : styles.uploadBtnDisabled}
+                style={file && !uploadStatus.loading ? styles.uploadBtnActive : styles.uploadBtnDisabled}
               >
                 {uploadStatus.loading ? "Processing..." : "Upload File"}
               </button>
@@ -105,21 +105,125 @@ const AdminDashboard = () => {
   );
 };
 
-// Simplified Styles
+// Premium, Modern Styles using CSS Variables (Design Tokens)
 const styles = {
-  layout: { display: "flex", minHeight: "100vh", backgroundColor: "#f8fafc", fontFamily: "Arial, sans-serif" },
-  main: { flexGrow: 1, marginLeft: "250px" }, // Margin left makes room for the fixed Sidebar
-  contentPadding: { padding: "0 40px 40px 40px" },
-  statsGrid: { display: "flex", gap: "20px", marginBottom: "40px" },
-  card: { backgroundColor: "white", padding: "25px", borderRadius: "10px", boxShadow: "0 2px 10px rgba(0,0,0,0.05)", flex: 1, borderTop: "4px solid #38bdf8" },
-  statNumber: { fontSize: "36px", fontWeight: "bold", margin: "10px 0 0 0", color: "#1e293b" },
-  uploadSection: { backgroundColor: "white", padding: "30px", borderRadius: "10px", boxShadow: "0 2px 10px rgba(0,0,0,0.05)" },
-  uploadForm: { display: "flex", gap: "15px", marginTop: "20px", alignItems: "center" },
-  fileInput: { padding: "10px", border: "1px dashed #ccc", borderRadius: "6px", flexGrow: 1, backgroundColor: "#f8fafc" },
-  uploadBtnActive: { backgroundColor: "#10b981", color: "white", border: "none", padding: "12px 24px", borderRadius: "6px", cursor: "pointer", fontWeight: "bold", transition: "0.2s" },
-  uploadBtnDisabled: { backgroundColor: "#9ca3af", color: "white", border: "none", padding: "12px 24px", borderRadius: "6px", cursor: "not-allowed", fontWeight: "bold" },
-  successMsg: { marginTop: "15px", padding: "15px", backgroundColor: "#d1fae5", color: "#065f46", borderRadius: "6px" },
-  errorMsg: { marginTop: "15px", padding: "15px", backgroundColor: "#fee2e2", color: "#991b1b", borderRadius: "6px" }
+  layout: { 
+    display: "flex", 
+    minHeight: "100vh" 
+  },
+  main: { 
+    flexGrow: 1, 
+    marginLeft: "260px" // Adjusted to match the new wider, modern sidebar
+  }, 
+  contentPadding: { 
+    padding: "0 40px 40px 40px" 
+  },
+  statsGrid: { 
+    display: "flex", 
+    gap: "24px", 
+    marginBottom: "40px" 
+  },
+  card: { 
+    backgroundColor: "var(--bg-card)", 
+    padding: "24px", 
+    borderRadius: "var(--radius)", 
+    boxShadow: "var(--shadow-md)", 
+    flex: 1, 
+    border: "1px solid var(--border)", 
+    borderTop: "4px solid var(--primary)",
+    transition: "transform 0.2s ease, box-shadow 0.2s ease"
+  },
+  cardTitle: {
+    margin: "0 0 10px 0",
+    color: "var(--text-muted)",
+    fontSize: "15px",
+    textTransform: "uppercase",
+    letterSpacing: "0.5px",
+    fontWeight: "600"
+  },
+  statNumber: { 
+    fontSize: "42px", 
+    fontWeight: "700", 
+    margin: "0", 
+    color: "var(--text-main)",
+    letterSpacing: "-1px"
+  },
+  uploadSection: { 
+    backgroundColor: "var(--bg-card)", 
+    padding: "32px", 
+    borderRadius: "var(--radius)", 
+    boxShadow: "var(--shadow-md)", 
+    border: "1px solid var(--border)" 
+  },
+  sectionTitle: {
+    margin: "0 0 8px 0",
+    fontSize: "20px",
+    fontWeight: "600",
+    color: "var(--text-main)"
+  },
+  sectionSubtitle: {
+    margin: "0 0 24px 0",
+    color: "var(--text-muted)",
+    fontSize: "15px"
+  },
+  uploadForm: { 
+    display: "flex", 
+    gap: "16px", 
+    alignItems: "center" 
+  },
+  fileInput: { 
+    padding: "14px", 
+    border: "2px dashed var(--border)", 
+    borderRadius: "var(--radius)", 
+    flexGrow: 1, 
+    backgroundColor: "var(--bg-main)", 
+    color: "var(--text-muted)", 
+    cursor: "pointer",
+    fontSize: "15px",
+    transition: "border 0.2s ease"
+  },
+  uploadBtnActive: { 
+    backgroundColor: "var(--primary)", 
+    color: "white", 
+    border: "none", 
+    padding: "14px 28px", 
+    borderRadius: "var(--radius)", 
+    cursor: "pointer", 
+    fontWeight: "600", 
+    fontSize: "15px",
+    transition: "all 0.2s ease", 
+    boxShadow: "var(--shadow-sm)" 
+  },
+  uploadBtnDisabled: { 
+    backgroundColor: "#cbd5e1", 
+    color: "white", 
+    border: "none", 
+    padding: "14px 28px", 
+    borderRadius: "var(--radius)", 
+    cursor: "not-allowed", 
+    fontWeight: "600",
+    fontSize: "15px"
+  },
+  successMsg: { 
+    marginTop: "20px", 
+    padding: "16px", 
+    backgroundColor: "#f0fdf4", 
+    color: "#166534", 
+    borderRadius: "var(--radius)", 
+    border: "1px solid #bbf7d0",
+    fontWeight: "500",
+    fontSize: "14px"
+  },
+  errorMsg: { 
+    marginTop: "20px", 
+    padding: "16px", 
+    backgroundColor: "#fef2f2", 
+    color: "#991b1b", 
+    borderRadius: "var(--radius)", 
+    border: "1px solid #fecaca",
+    fontWeight: "500",
+    fontSize: "14px"
+  }
 };
 
 export default AdminDashboard;

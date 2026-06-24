@@ -28,11 +28,11 @@ const Navbar = () => {
 };
 
 const styles = {
-  navbar: { display: "flex", justifyContent: "space-between", alignItems: "center", backgroundColor: "white", padding: "20px 40px", boxShadow: "0 2px 10px rgba(0,0,0,0.05)", marginBottom: "30px", borderRadius: "8px" },
-  title: { margin: 0, fontSize: "24px", color: "#1e293b" },
+  navbar: { display: "flex", justifyContent: "space-between", alignItems: "center", backgroundColor: "var(--bg-card)", padding: "20px 40px", boxShadow: "var(--shadow-sm)", marginBottom: "30px", borderRadius: "var(--radius)", border: "1px solid var(--border)" },
+  title: { margin: 0, fontSize: "22px", fontWeight: "600", color: "var(--text-main)", letterSpacing: "-0.5px" },
   userInfo: { display: "flex", alignItems: "center", gap: "15px" },
-  welcomeText: { color: "#475569", fontSize: "16px" },
-  avatar: { width: "40px", height: "40px", borderRadius: "50%", backgroundColor: "#38bdf8", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "bold", fontSize: "18px" }
+  welcomeText: { color: "var(--text-muted)", fontSize: "15px" },
+  avatar: { width: "42px", height: "42px", borderRadius: "50%", backgroundColor: "var(--primary)", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "bold", fontSize: "18px", boxShadow: "var(--shadow-sm)" }
 };
 
 export default Navbar;

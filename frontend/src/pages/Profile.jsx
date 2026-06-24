@@ -41,16 +41,25 @@ const Profile = () => {
               <div style={styles.avatarPlaceholder}>
                 {user.name ? user.name.charAt(0).toUpperCase() : "U"}
               </div>
-              <h2 style={{ margin: "15px 0 5px 0" }}>{user.name}</h2>
-              <p style={styles.infoText}><strong>Role:</strong> {user.role_id === 1 ? "Administrator" : "Employee"}</p>
-              <p style={styles.infoText}><strong>Email:</strong> {user.email || "Not provided"}</p>
-              <p style={styles.infoText}><strong>System ID:</strong> EMP-{user.id}</p>
+              <h2 style={styles.userName}>{user.name}</h2>
+              <div style={styles.infoGroup}>
+                <p style={styles.infoLabel}>Role</p>
+                <p style={styles.infoValue}>{user.role_id === 1 ? "Administrator" : "Employee"}</p>
+              </div>
+              <div style={styles.infoGroup}>
+                <p style={styles.infoLabel}>Email</p>
+                <p style={styles.infoValue}>{user.email || "Not provided"}</p>
+              </div>
+              <div style={styles.infoGroup}>
+                <p style={styles.infoLabel}>System ID</p>
+                <p style={styles.infoValue}>EMP-{user.id}</p>
+              </div>
             </div>
 
             {/* Change Password Card */}
             <div style={styles.card}>
-              <h3>Security Settings</h3>
-              <p style={{ color: "#64748b", marginBottom: "20px" }}>Update your account password here.</p>
+              <h3 style={styles.cardTitle}>Security Settings</h3>
+              <p style={styles.cardSubtitle}>Update your account password here.</p>
               
               {msg.text && (
                 <div style={msg.type === "success" ? styles.successMsg : styles.errorMsg}>
@@ -83,7 +92,6 @@ const Profile = () => {
               </form>
             </div>
           </div>
-
         </div>
       </div>
     </div>
@@ -91,19 +99,24 @@ const Profile = () => {
 };
 
 const styles = {
-  layout: { display: "flex", minHeight: "100vh", backgroundColor: "#f8fafc", fontFamily: "Arial, sans-serif" },
-  main: { flexGrow: 1, marginLeft: "250px" },
+  layout: { display: "flex", minHeight: "100vh" },
+  main: { flexGrow: 1, marginLeft: "260px" },
   contentPadding: { padding: "0 40px 40px 40px" },
   grid: { display: "grid", gridTemplateColumns: "1fr 2fr", gap: "30px" },
-  card: { backgroundColor: "white", padding: "30px", borderRadius: "10px", boxShadow: "0 2px 10px rgba(0,0,0,0.05)", display: "flex", flexDirection: "column" },
-  avatarPlaceholder: { width: "80px", height: "80px", borderRadius: "50%", backgroundColor: "#38bdf8", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "32px", fontWeight: "bold" },
-  infoText: { margin: "8px 0", color: "#475569", fontSize: "16px" },
-  form: { display: "flex", flexDirection: "column", gap: "12px" },
-  label: { fontSize: "14px", color: "#475569", fontWeight: "bold" },
-  input: { padding: "10px", border: "1px solid #ccc", borderRadius: "4px", fontSize: "14px" },
-  saveBtn: { backgroundColor: "#10b981", color: "white", border: "none", padding: "12px", borderRadius: "4px", cursor: "pointer", fontWeight: "bold", marginTop: "10px" },
-  successMsg: { marginBottom: "15px", padding: "10px", backgroundColor: "#d1fae5", color: "#065f46", borderRadius: "4px", fontSize: "14px", fontWeight: "bold" },
-  errorMsg: { marginBottom: "15px", padding: "10px", backgroundColor: "#fee2e2", color: "#991b1b", borderRadius: "4px", fontSize: "14px", fontWeight: "bold" }
+  card: { backgroundColor: "var(--bg-card)", padding: "30px", borderRadius: "var(--radius)", boxShadow: "var(--shadow-md)", border: "1px solid var(--border)" },
+  avatarPlaceholder: { width: "80px", height: "80px", borderRadius: "50%", backgroundColor: "var(--primary)", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "32px", fontWeight: "bold", marginBottom: "15px" },
+  userName: { margin: "0 0 20px 0", color: "var(--text-main)" },
+  infoGroup: { marginBottom: "15px" },
+  infoLabel: { fontSize: "12px", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: "600", margin: "0" },
+  infoValue: { fontSize: "16px", color: "var(--text-main)", margin: "4px 0" },
+  cardTitle: { margin: "0 0 5px 0", color: "var(--text-main)" },
+  cardSubtitle: { color: "var(--text-muted)", marginBottom: "20px", fontSize: "14px" },
+  form: { display: "flex", flexDirection: "column", gap: "15px" },
+  label: { fontSize: "14px", fontWeight: "600", color: "var(--text-main)" },
+  input: { padding: "12px", border: "1px solid var(--border)", borderRadius: "6px", fontSize: "15px", outline: "none" },
+  saveBtn: { backgroundColor: "var(--primary)", color: "white", border: "none", padding: "12px", borderRadius: "6px", cursor: "pointer", fontWeight: "600", marginTop: "10px" },
+  successMsg: { marginBottom: "15px", padding: "12px", backgroundColor: "#f0fdf4", color: "#166534", borderRadius: "6px", fontSize: "14px", fontWeight: "500" },
+  errorMsg: { marginBottom: "15px", padding: "12px", backgroundColor: "#fef2f2", color: "#991b1b", borderRadius: "6px", fontSize: "14px", fontWeight: "500" }
 };
 
 export default Profile;
