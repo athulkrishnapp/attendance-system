@@ -29,10 +29,12 @@ exports.register = async (req, res) => {
 // Login
 exports.login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    // 1. Change email to employee_code
+    const { employee_code, password } = req.body;
 
-    // Check if user exists
-    const user = await pool.query("SELECT * FROM employees WHERE email = $1", [email]);
+    // 2. Query by employee_code instead of email
+    const user = await pool.query("SELECT * FROM employees WHERE employee_code = $1", [employee_code]);
+    
     if (user.rows.length === 0) {
       return res.status(401).json({ error: "Invalid Credentials" });
     }
@@ -46,7 +48,6 @@ exports.login = async (req, res) => {
     // Generate Token
     const token = jwt.sign({ id: user.rows[0].id, role_id: user.rows[0].role_id }, JWT_SECRET, { expiresIn: "1h" });
 
-    // FIX IS HERE: Added employee_code to the response
     res.json({ 
       token, 
       user: { 

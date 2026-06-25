@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import API from "../services/api";
 
 const Login = () => {
-  const [email, setEmail] = useState("");
+  // 1. Changed email to employeeCode state
+  const [employeeCode, setEmployeeCode] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const navigate = useNavigate();
@@ -13,7 +14,8 @@ const Login = () => {
     setError("");
 
     try {
-      const response = await API.post("/auth/login", { email, password });
+      // 2. Send employee_code instead of email
+      const response = await API.post("/auth/login", { employee_code: employeeCode, password });
       localStorage.setItem("token", response.data.token);
       localStorage.setItem("user", JSON.stringify(response.data.user));
       
@@ -38,13 +40,15 @@ const Login = () => {
         
         <form onSubmit={handleLogin} style={styles.form}>
           <div style={styles.inputGroup}>
-            <label style={styles.label}>Email Address</label>
+            {/* 3. Updated Label and Input */}
+            <label style={styles.label}>Employee ID</label>
             <input 
-              type="email" 
-              value={email} 
-              onChange={(e) => setEmail(e.target.value)} 
+              type="text" 
+              value={employeeCode} 
+              onChange={(e) => setEmployeeCode(e.target.value)} 
               required 
               style={styles.input}
+              placeholder=""
             />
           </div>
           

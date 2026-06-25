@@ -38,3 +38,28 @@ exports.addHoliday = async (req, res) => {
     res.status(500).json({ error: "Failed to add holiday. Date might already exist." });
   }
 };
+
+// Add to controllers/settingsController.js
+exports.updateHoliday = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { holiday_date, description } = req.body;
+    await pool.query(
+      "UPDATE company_holidays SET holiday_date = $1, description = $2 WHERE id = $3",
+      [holiday_date, description, id]
+    );
+    res.json({ message: "Holiday updated" });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to update holiday" });
+  }
+};
+
+exports.deleteHoliday = async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query("DELETE FROM company_holidays WHERE id = $1", [id]);
+    res.json({ message: "Holiday deleted" });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to delete holiday" });
+  }
+};
