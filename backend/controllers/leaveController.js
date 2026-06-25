@@ -2,10 +2,11 @@ const pool = require("../db");
 
 exports.requestLeave = async (req, res) => {
   try {
-    const { employee_id, start_date, end_date, leave_type, reason } = req.body;
+    // Note: The frontend will pass a single 'date' and 'duration'
+    const { employee_id, date, duration, leave_type, reason } = req.body;
     await pool.query(
-      "INSERT INTO leave_requests (employee_id, start_date, end_date, leave_type, reason) VALUES ($1, $2, $3, $4, $5)",
-      [employee_id, start_date, end_date, leave_type, reason]
+      "INSERT INTO leave_requests (employee_id, start_date, end_date, duration, leave_type, reason) VALUES ($1, $2, $3, $4, $5, $6)",
+      [employee_id, date, date, duration, leave_type, reason] // Using 'date' for both start and end for simplicity
     );
     res.json({ message: "Leave request submitted to Admin." });
   } catch (err) {
@@ -15,7 +16,6 @@ exports.requestLeave = async (req, res) => {
 
 exports.getMyLeaves = async (req, res) => {
   try {
-    // req.params.id will be the logged-in employee's ID
     const result = await pool.query("SELECT * FROM leave_requests WHERE employee_id = $1 ORDER BY applied_on DESC", [req.params.id]);
     res.json(result.rows);
   } catch (err) {

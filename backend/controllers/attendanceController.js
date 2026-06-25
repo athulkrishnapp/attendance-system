@@ -145,3 +145,16 @@ exports.uploadAttendance = async (req, res) => {
     res.status(500).json({ error: "Failed to process attendance file" });
   }
 };
+
+exports.requestRegularization = async (req, res) => {
+  try {
+    const { id } = req.body;
+    await pool.query(
+      "UPDATE attendance_summary SET regularization_status = 'PENDING' WHERE id = $1",
+      [id]
+    );
+    res.json({ message: "Regularization requested successfully." });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to request regularization." });
+  }
+};

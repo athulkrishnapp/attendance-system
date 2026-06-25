@@ -16,7 +16,13 @@ const Login = () => {
       const response = await API.post("/auth/login", { email, password });
       localStorage.setItem("token", response.data.token);
       localStorage.setItem("user", JSON.stringify(response.data.user));
-      navigate("/dashboard");
+      
+      // Redirect based on Role
+      if (response.data.user.role_id === 1) {
+        navigate("/dashboard");
+      } else {
+        navigate("/swipe-reports");
+      }
     } catch (err) {
       setError(err.response?.data?.error || "Failed to login. Check credentials.");
     }
@@ -56,6 +62,7 @@ const Login = () => {
           <button type="submit" style={styles.button}>Sign In</button>
         </form>
       </div>
+      <footer style={styles.footer}>Copyright@ Vedik Solutions</footer>
     </div>
   );
 };
@@ -63,8 +70,10 @@ const Login = () => {
 const styles = {
   container: { 
     display: 'flex', 
+    flexDirection: 'column',
     justifyContent: 'center', 
     alignItems: 'center', 
+    gap: '24px',
     height: '100vh', 
     backgroundColor: 'var(--bg-main)' 
   },
@@ -108,6 +117,11 @@ const styles = {
     padding: '12px', 
     borderRadius: '6px',
     border: '1px solid #fecaca'
+  },
+  footer: {
+    color: 'var(--text-muted)',
+    fontSize: '13px',
+    textAlign: 'center'
   }
 };
 

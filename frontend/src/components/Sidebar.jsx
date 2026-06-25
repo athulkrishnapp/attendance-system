@@ -3,8 +3,6 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 const Sidebar = () => {
   const location = useLocation();
   const navigate = useNavigate();
-
-  // Get the user from local storage to check their role
   const userString = localStorage.getItem("user");
   const user = userString ? JSON.parse(userString) : null;
   const isAdmin = user?.role_id === 1;
@@ -21,36 +19,26 @@ const Sidebar = () => {
     <div style={styles.sidebar}>
       <h2 style={styles.brand}>Attendance Pro</h2>
       <nav style={styles.nav}>
-        
-        {/* ADMIN ONLY LINKS */}
-        {isAdmin && (
+        {isAdmin ? (
           <>
             <Link to="/dashboard" style={isActive("/dashboard") ? styles.activeLink : styles.link}>Admin Dashboard</Link>
             <Link to="/employees" style={isActive("/employees") ? styles.activeLink : styles.link}>Manage Staff</Link>
             <Link to="/attendance" style={isActive("/attendance") ? styles.activeLink : styles.link}>Master Reports</Link>
-            
-            {/* <-- NEW APPROVALS LINK ADDED HERE --> */}
             <Link to="/approvals" style={isActive("/approvals") ? styles.activeLink : styles.link}>Leave Approvals</Link>
-            
-            <Link to="/settings" style={isActive("/settings") ? styles.activeLink : styles.link}>Settings & Calendar</Link>
+            <Link to="/settings" style={isActive("/settings") ? styles.activeLink : styles.link}>Settings</Link>
           </>
-        )}
-
-        {/* EMPLOYEE ONLY LINKS */}
-        {!isAdmin && (
+        ) : (
           <>
-            <Link to="/my-dashboard" style={isActive("/my-dashboard") ? styles.activeLink : styles.link}>My Dashboard</Link>
+            <Link to="/swipe-reports" style={isActive("/swipe-reports") ? styles.activeLink : styles.link}>Swipe Reports</Link>
+            <Link to="/request-leave" style={isActive("/request-leave") ? styles.activeLink : styles.link}>Request Leave</Link>
           </>
         )}
-
-        {/* EVERYONE SEES THIS */}
-        <Link to="/profile" style={isActive("/profile") ? styles.activeLink : styles.link}>My Profile</Link>
-        
       </nav>
       <button onClick={handleLogout} style={styles.logoutBtn}>Logout</button>
     </div>
   );
 };
+
 
 const styles = {
   sidebar: { width: "260px", backgroundColor: "var(--secondary)", color: "var(--text-light)", display: "flex", flexDirection: "column", padding: "24px", height: "100vh", position: "fixed", top: 0, left: 0, boxShadow: "var(--shadow-md)" },

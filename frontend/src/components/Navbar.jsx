@@ -1,16 +1,17 @@
-import { useLocation } from "react-router-dom";
+import { useLocation, Link } from "react-router-dom";
 
 const Navbar = () => {
   const location = useLocation();
   const userString = localStorage.getItem("user");
   const user = userString ? JSON.parse(userString) : { name: "Admin" };
 
-  // Generate a page title based on the route
   const getPageTitle = () => {
     switch (location.pathname) {
       case "/dashboard": return "Dashboard Overview";
       case "/employees": return "Employee Management";
       case "/attendance": return "Master Attendance Report";
+      case "/swipe-reports": return "My Swipe Reports";
+      case "/request-leave": return "Leave Management";
       case "/profile": return "My Profile";
       default: return "System Portal";
     }
@@ -21,11 +22,16 @@ const Navbar = () => {
       <h1 style={styles.title}>{getPageTitle()}</h1>
       <div style={styles.userInfo}>
         <span style={styles.welcomeText}>Welcome back, <strong>{user.name}</strong></span>
-        <div style={styles.avatar}>{user.name.charAt(0).toUpperCase()}</div>
+        <Link to="/profile" style={{textDecoration: 'none'}}>
+          <div style={{...styles.avatar, cursor: "pointer"}} title="Go to Profile">
+            {user.name.charAt(0).toUpperCase()}
+          </div>
+        </Link>
       </div>
     </header>
   );
 };
+// keep existing styles...
 
 const styles = {
   navbar: { display: "flex", justifyContent: "space-between", alignItems: "center", backgroundColor: "var(--bg-card)", padding: "20px 40px", boxShadow: "var(--shadow-sm)", marginBottom: "30px", borderRadius: "var(--radius)", border: "1px solid var(--border)" },

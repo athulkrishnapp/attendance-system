@@ -9,4 +9,6 @@ const upload = multer({ dest: "uploads/attendance_excel_files/" });
 // The route expects a file input named "file"
 router.post("/upload", upload.single("file"), attendanceController.uploadAttendance);
 
+router.put("/regularize", attendanceController.requestRegularization);
+
 module.exports = router;
