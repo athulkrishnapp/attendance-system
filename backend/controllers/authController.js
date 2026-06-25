@@ -46,7 +46,17 @@ exports.login = async (req, res) => {
     // Generate Token
     const token = jwt.sign({ id: user.rows[0].id, role_id: user.rows[0].role_id }, JWT_SECRET, { expiresIn: "1h" });
 
-    res.json({ token, user: { id: user.rows[0].id, name: user.rows[0].name, role_id: user.rows[0].role_id } });
+    // FIX IS HERE: Added employee_code to the response
+    res.json({ 
+      token, 
+      user: { 
+        id: user.rows[0].id, 
+        name: user.rows[0].name, 
+        role_id: user.rows[0].role_id,
+        employee_code: user.rows[0].employee_code,
+        email: user.rows[0].email
+      } 
+    });
   } catch (err) {
     console.error(err.message);
     res.status(500).json({ error: "Server error during login" });

@@ -5,7 +5,7 @@ import Navbar from "../components/Navbar";
 
 const Settings = () => {
   const [settings, setSettings] = useState({
-    shift_start_time: "", shift_end_time: "", grace_period_minutes: 0, required_working_hours: 0
+    shift_start_time: "", shift_end_time: "", grace_period_minutes: 0, required_working_hours: 0, casual_leave_notice_days: 0
   });
   const [holidays, setHolidays] = useState([]);
   const [newHoliday, setNewHoliday] = useState({ holiday_date: "", description: "" });
@@ -67,7 +67,7 @@ const Settings = () => {
           <div style={styles.grid}>
             {/* Shift Rules Card */}
             <div style={styles.card}>
-              <h3 style={styles.cardTitle}>⚙️ Shift Rules</h3>
+              <h3 style={styles.cardTitle}>⚙️ Shift & Leave Rules</h3>
               <form onSubmit={handleSettingsUpdate} style={styles.form}>
                 <label style={styles.label}>Shift Start Time</label>
                 <input type="time" value={settings.shift_start_time} onChange={(e) => setSettings({...settings, shift_start_time: e.target.value})} style={styles.input} required />
@@ -81,7 +81,12 @@ const Settings = () => {
                 <label style={styles.label}>Required Working Hours</label>
                 <input type="number" step="0.5" value={settings.required_working_hours} onChange={(e) => setSettings({...settings, required_working_hours: e.target.value})} style={styles.input} required />
                 
-                <button type="submit" style={styles.saveBtn}>Save Shift Rules</button>
+                {/* NEW FIELD */}
+                <label style={styles.label}>Casual Leave Notice Period (Days)</label>
+                <input type="number" min="0" value={settings.casual_leave_notice_days || 0} onChange={(e) => setSettings({...settings, casual_leave_notice_days: e.target.value})} style={styles.input} required />
+                <p style={{fontSize: '12px', color: 'var(--text-muted)', margin: '-10px 0 5px 0'}}>Set to 0 to allow same-day casual leaves.</p>
+
+                <button type="submit" style={styles.saveBtn}>Save Rules</button>
               </form>
             </div>
 

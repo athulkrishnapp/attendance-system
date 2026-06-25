@@ -22,10 +22,19 @@ app.use("/attendance", attendanceRoutes);
 app.use("/auth", authRoutes);
 app.use("/reports", reportRoutes);
 app.use("/settings", settingsRoutes);
-app.use("/leave", leaveRoutes);
+app.use("/leaves", leaveRoutes);
 
 const PORT = 5001;
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+const server = app.listen(PORT, () => {
+  console.log(`✅ Server running successfully on port ${PORT}`);
+});
+
+// Catch Port conflicts loudly!
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`❌ PORT ${PORT} IS ALREADY IN USE! You need to kill the port.`);
+  } else {
+    console.error(`❌ SERVER ERROR:`, err);
+  }
 });

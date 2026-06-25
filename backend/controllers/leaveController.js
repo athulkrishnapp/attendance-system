@@ -2,15 +2,29 @@ const pool = require("../db");
 
 exports.requestLeave = async (req, res) => {
   try {
-    // Note: The frontend will pass a single 'date' and 'duration'
-    const { employee_id, date, duration, leave_type, reason } = req.body;
-    await pool.query(
-      "INSERT INTO leave_requests (employee_id, start_date, end_date, duration, leave_type, reason) VALUES ($1, $2, $3, $4, $5, $6)",
-      [employee_id, date, date, duration, leave_type, reason] // Using 'date' for both start and end for simplicity
-    );
-    res.json({ message: "Leave request submitted to Admin." });
-  } catch (err) {
-    res.status(500).json({ error: "Failed to submit leave request" });
+    const { employee_id, start_date, end_date, leave_type, duration, reason } = req.body;
+
+    // Ensure we have a valid end date for single-day leaves
+    const finalEndDate = end_date || start_date;
+
+    const query = `
+      INSERT INTO leave_requests (employee_id, start_date, end_date, leave_type, duration, reason, status)
+      VALUES ($1, $2, $3, $4, $5, $6, 'PENDING')
+      RETURNING *;
+    `;
+    
+    const values = [employee_id, start_date, finalEndDate, leave_type, duration, reason];
+
+    const result = await pool.query(query, values);
+    
+    res.status(201).json({ 
+        message: "Leave requested successfully", 
+        leave: result.rows[0] 
+    });
+
+  } catch (error) {
+    console.error("Error requesting leave:", error.message);
+    res.status(500).json({ error: "Server error while requesting leave." });
   }
 };
 

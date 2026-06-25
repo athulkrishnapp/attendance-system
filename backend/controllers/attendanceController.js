@@ -10,7 +10,10 @@ exports.uploadAttendance = async (req, res) => {
     // 1. Fetch Company Settings & Holidays from Database
     const settingsRes = await pool.query("SELECT * FROM company_settings LIMIT 1");
     const settings = settingsRes.rows[0] || { 
-      shift_start_time: '09:00:00', grace_period_minutes: 15, required_working_hours: 8 
+      shift_start_time: '09:00:00', 
+      shift_end_time: '18:00:00', // Default fallback
+      grace_period_minutes: 15, 
+      required_working_hours: 8 
     };
 
     const holidaysRes = await pool.query("SELECT holiday_date, description FROM company_holidays");
@@ -20,31 +23,25 @@ exports.uploadAttendance = async (req, res) => {
       holidayMap[dateStr] = h.description;
     });
 
-    // 👉 Fetch all employees and map their employee_code to their database ID
     const employeesRes = await pool.query("SELECT id, employee_code FROM employees");
     const codeToIdMap = {};
     employeesRes.rows.forEach(emp => {
       codeToIdMap[emp.employee_code] = emp.id;
     });
 
-    // 2. Read the uploaded Excel file
     const workbook = xlsx.readFile(req.file.path);
     const sheetName = workbook.SheetNames[0];
     const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
 
-    const uploadLog = await pool.query(
+    await pool.query(
       "INSERT INTO upload_history (file_name, uploaded_by, records_imported) VALUES ($1, $2, $3) RETURNING id",
       [req.file.originalname, 1, data.length]
     );
 
-    // 3. Group Raw Data by Employee and Date
     const dailySummaries = {};
 
     for (const row of data) {
-      // Convert the Excel 'employee_code' (e.g., EMP002) into the actual DB id (e.g., 7)
       const actualEmployeeId = codeToIdMap[row.employee_code];
-
-      // If the code in Excel doesn't match any employee in the DB, skip it safely
       if (!actualEmployeeId) {
         console.warn(`Skipping row: Unknown employee_code ${row.employee_code}`);
         continue; 
@@ -88,6 +85,9 @@ exports.uploadAttendance = async (req, res) => {
       
       const expectedStartTime = new Date(`${record.attendance_date}T${settings.shift_start_time}`);
       const maxGraceTime = new Date(expectedStartTime.getTime() + settings.grace_period_minutes * 60000);
+      
+      const expectedEndTime = new Date(`${record.attendance_date}T${settings.shift_end_time || '18:00:00'}`);
+      const overtimeThreshold = new Date(expectedEndTime.getTime() + 30 * 60000); // 30 mins post-checkout
 
       if (firstIn > maxGraceTime && !isWeekend && !holidayName) {
         remarks = "LATE ARRIVAL";
@@ -102,12 +102,16 @@ exports.uploadAttendance = async (req, res) => {
         status = 'SHORT_LEAVE';
       }
 
+      // Overtime Logic Evaluation
       if (isWeekend && workingHours > 0) {
         status = 'OVERTIME';
         remarks = "Weekend Shift";
       } else if (holidayName && workingHours > 0) {
         status = 'OVERTIME';
         remarks = `Worked on ${holidayName}`;
+      } else if (!isWeekend && !holidayName && lastOut >= overtimeThreshold) {
+        const otHours = ((lastOut - expectedEndTime) / (1000 * 60 * 60)).toFixed(1);
+        remarks = remarks ? `${remarks}, OT: ${otHours}h` : `OT: ${otHours}h`;
       }
 
       const firstInTime = firstIn.toTimeString().split(' ')[0];

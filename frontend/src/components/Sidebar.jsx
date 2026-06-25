@@ -1,17 +1,10 @@
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 
 const Sidebar = () => {
   const location = useLocation();
-  const navigate = useNavigate();
   const userString = localStorage.getItem("user");
   const user = userString ? JSON.parse(userString) : null;
   const isAdmin = user?.role_id === 1;
-
-  const handleLogout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    navigate("/");
-  };
 
   const isActive = (path) => location.pathname === path;
 
@@ -34,19 +27,56 @@ const Sidebar = () => {
           </>
         )}
       </nav>
-      <button onClick={handleLogout} style={styles.logoutBtn}>Logout</button>
     </div>
   );
 };
 
-
 const styles = {
-  sidebar: { width: "260px", backgroundColor: "var(--secondary)", color: "var(--text-light)", display: "flex", flexDirection: "column", padding: "24px", height: "100vh", position: "fixed", top: 0, left: 0, boxShadow: "var(--shadow-md)" },
-  brand: { fontSize: "22px", fontWeight: "700", marginBottom: "40px", color: "var(--primary)", letterSpacing: "-0.5px" },
-  nav: { display: "flex", flexDirection: "column", gap: "8px", flexGrow: 1 },
-  link: { color: "#94a3b8", textDecoration: "none", fontSize: "15px", padding: "12px 16px", borderRadius: "8px", transition: "all 0.2s ease", fontWeight: "500" },
-  activeLink: { color: "var(--primary)", textDecoration: "none", fontSize: "15px", padding: "12px 16px", backgroundColor: "rgba(2, 132, 199, 0.1)", borderRadius: "8px", fontWeight: "600", borderLeft: "4px solid var(--primary)" },
-  logoutBtn: { backgroundColor: "transparent", color: "#ef4444", border: "1px solid #ef4444", padding: "12px", borderRadius: "8px", cursor: "pointer", fontWeight: "600", marginTop: "auto", transition: "0.2s" }
+  sidebar: { 
+    width: "260px", 
+    backgroundColor: "var(--secondary)", 
+    color: "var(--text-light)", 
+    display: "flex", 
+    flexDirection: "column", 
+    padding: "24px", 
+    height: "100vh", 
+    position: "fixed", 
+    top: 0, 
+    left: 0, 
+    boxShadow: "var(--shadow-md)" 
+  },
+  brand: { 
+    fontSize: "22px", 
+    fontWeight: "700", 
+    marginBottom: "40px", 
+    color: "var(--primary)", 
+    letterSpacing: "-0.5px" 
+  },
+  nav: { 
+    display: "flex", 
+    flexDirection: "column", 
+    gap: "8px", 
+    flexGrow: 1 
+  },
+  link: { 
+    color: "#94a3b8", 
+    textDecoration: "none", 
+    fontSize: "15px", 
+    padding: "12px 16px", 
+    borderRadius: "8px", 
+    transition: "all 0.2s ease", 
+    fontWeight: "500" 
+  },
+  activeLink: { 
+    color: "var(--primary)", 
+    textDecoration: "none", 
+    fontSize: "15px", 
+    padding: "12px 16px", 
+    backgroundColor: "rgba(2, 132, 199, 0.1)", 
+    borderRadius: "8px", 
+    fontWeight: "600", 
+    borderLeft: "4px solid var(--primary)" 
+  }
 };
 
 export default Sidebar;

@@ -12,12 +12,13 @@ exports.getSettings = async (req, res) => {
 
 exports.updateSettings = async (req, res) => {
   try {
-    const { shift_start_time, shift_end_time, grace_period_minutes, required_working_hours } = req.body;
+    // Added casual_leave_notice_days here
+    const { shift_start_time, shift_end_time, grace_period_minutes, required_working_hours, casual_leave_notice_days } = req.body;
     await pool.query(
       `UPDATE company_settings 
-       SET shift_start_time=$1, shift_end_time=$2, grace_period_minutes=$3, required_working_hours=$4 
+       SET shift_start_time=$1, shift_end_time=$2, grace_period_minutes=$3, required_working_hours=$4, casual_leave_notice_days=$5 
        WHERE id=1`,
-      [shift_start_time, shift_end_time, grace_period_minutes, required_working_hours]
+      [shift_start_time, shift_end_time, grace_period_minutes, required_working_hours, casual_leave_notice_days || 0]
     );
     res.json({ message: "Settings updated successfully" });
   } catch (err) {
