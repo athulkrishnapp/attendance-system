@@ -1,9 +1,8 @@
 import { useState, useEffect } from "react";
-import API from "../services/api";
+import API, { api } from "../services/api";
 import Sidebar from "../components/Sidebar";
 import Navbar from "../components/Navbar";
 
-// Get today's date in YYYY-MM-DD format for the local timezone
 const getTodayDate = () => {
   const today = new Date();
   const yyyy = today.getFullYear();
@@ -17,30 +16,32 @@ const todayFormatted = getTodayDate();
 const RequestLeave = () => {
   const user = JSON.parse(localStorage.getItem("user"));
   const [leaves, setLeaves] = useState([]);
+  const [leaveTypes, setLeaveTypes] = useState([]);
   const [msg, setMsg] = useState({ text: "", type: "" });
-  const [noticeDays, setNoticeDays] = useState(0); 
   
   const [leaveForm, setLeaveForm] = useState({ 
     start_date: "", 
     end_date: "",
-    leave_type: "Sick Leave", 
-    duration: "Full Day",
-    reason: "" 
+    leave_type_id: "", 
+    leave_portion: "FULL_DAY",
+    hourly_duration: 1,
+    reason: "",
+    file: null
   });
 
-  // Fetch both settings and history on load
   useEffect(() => { 
-    fetchSettings(); 
     fetchMyLeaves(); 
+    fetchLeaveTypes();
   }, []);
 
-  const fetchSettings = async () => {
+  const fetchLeaveTypes = async () => {
     try {
-      const res = await API.get("/settings");
-      if(res.data.settings && res.data.settings.casual_leave_notice_days) {
-        setNoticeDays(res.data.settings.casual_leave_notice_days);
+      const res = await api.leaveTypes.getAll();
+      setLeaveTypes(res.data);
+      if (res.data.length > 0) {
+        setLeaveForm(prev => ({ ...prev, leave_type_id: res.data[0].id }));
       }
-    } catch (err) { console.error("Failed to load leave policies"); }
+    } catch (err) { console.error("Failed to load leave types"); }
   };
 
   const fetchMyLeaves = async () => {
@@ -50,11 +51,18 @@ const RequestLeave = () => {
     } catch (err) { console.error(err); }
   };
 
-  // Dynamic Date Calculator based on Admin Rules
+  // Dynamic Date Calculator based on Leave Type Rules
+  const getSelectedLeaveType = () => leaveTypes.find(t => t.id == leaveForm.leave_type_id);
+  const getNoticeDays = () => {
+    const type = getSelectedLeaveType();
+    return type ? type.min_advance_notice_days : 0;
+  };
+
   const getMinStartDate = () => {
     const date = new Date();
-    if (leaveForm.leave_type === "Casual Leave" && noticeDays > 0) {
-      date.setDate(date.getDate() + parseInt(noticeDays));
+    const notice = getNoticeDays();
+    if (notice > 0) {
+      date.setDate(date.getDate() + parseInt(notice));
     }
     const yyyy = date.getFullYear();
     const mm = String(date.getMonth() + 1).padStart(2, '0');
@@ -77,32 +85,38 @@ const RequestLeave = () => {
     minAllowedDate.setHours(0,0,0,0);
     selectedStartDate.setHours(0,0,0,0);
 
-    if (selectedStartDate < minAllowedDate) {
-      setMsg({ 
-        text: leaveForm.leave_type === "Casual Leave" 
-          ? `Company Policy: Casual Leave requires at least ${noticeDays} days prior notice.` 
-          : "You cannot select a past date.", 
-        type: "error" 
-      });
-      return;
-    }
-
     if (new Date(actualEndDate) < new Date(leaveForm.start_date)) {
       setMsg({ text: "End Date cannot be earlier than Start Date.", type: "error" });
       return;
     }
 
+    const type = getSelectedLeaveType();
+    if (type && type.requires_documentation && !leaveForm.file) {
+      setMsg({ text: "This leave type requires supporting documentation. Please upload a file.", type: "error" });
+      return;
+    }
+
     try {
-      await API.post("/leaves/request", { 
-        employee_id: user.id,
-        start_date: leaveForm.start_date,
-        end_date: actualEndDate, 
-        duration: isActuallyMultiDay ? "Multiple Days" : leaveForm.duration,
-        leave_type: leaveForm.leave_type,
-        reason: leaveForm.reason
-      });
+      const formData = new FormData();
+      formData.append("employee_id", user.id);
+      formData.append("start_date", leaveForm.start_date);
+      formData.append("end_date", actualEndDate);
+      formData.append("leave_portion", isActuallyMultiDay ? "FULL_DAY" : leaveForm.leave_portion);
+      
+      if (leaveForm.leave_portion === 'HOURLY') {
+        formData.append("hourly_duration", leaveForm.hourly_duration);
+      }
+      
+      formData.append("leave_type_id", leaveForm.leave_type_id);
+      formData.append("reason", leaveForm.reason);
+      
+      if (leaveForm.file) {
+        formData.append("file", leaveForm.file);
+      }
+
+      await api.leaveRequests.request(formData);
       setMsg({ text: "Leave request submitted successfully.", type: "success" });
-      setLeaveForm({ start_date: "", end_date: "", leave_type: "Sick Leave", duration: "Full Day", reason: "" });
+      setLeaveForm({ start_date: "", end_date: "", leave_type_id: leaveTypes.length > 0 ? leaveTypes[0].id : "", leave_portion: "FULL_DAY", hourly_duration: 1, reason: "", file: null });
       setTimeout(() => setMsg({ text: "", type: "" }), 3000);
       fetchMyLeaves(); 
     } catch (err) { 
@@ -113,6 +127,7 @@ const RequestLeave = () => {
 
   const actualEndDateUI = leaveForm.end_date || leaveForm.start_date;
   const isMultiDay = leaveForm.start_date && actualEndDateUI && leaveForm.start_date !== actualEndDateUI;
+  const selectedType = getSelectedLeaveType();
 
   // Helper for Status Badges
   const getStatusStyle = (status) => {
@@ -135,7 +150,6 @@ const RequestLeave = () => {
             <p style={styles.pageSubtitle}>Apply for time off and track your request history.</p>
           </div>
 
-          {/* SIDE BY SIDE GRID LAYOUT */}
           <div style={styles.gridContainer}>
             
             {/* LEFT COLUMN: Apply Form */}
@@ -149,22 +163,27 @@ const RequestLeave = () => {
                   <div style={msg.type === "error" ? styles.errorMsg : styles.successMsg}>{msg.text}</div>
                 )}
                 
-                {leaveForm.leave_type === "Casual Leave" && noticeDays > 0 && (
+                {selectedType && selectedType.min_advance_notice_days > 0 && (
                   <div style={styles.infoBanner}>
-                    Note: Casual Leaves must be requested at least <strong>{noticeDays} days</strong> in advance.
+                    Note: This leave type must be requested at least <strong>{selectedType.min_advance_notice_days} days</strong> in advance.
+                  </div>
+                )}
+                
+                {leaveForm.start_date && new Date(leaveForm.start_date).setHours(0,0,0,0) < new Date(minStartDateFormatted).setHours(0,0,0,0) && (
+                  <div style={styles.warningBanner}>
+                    <strong>Soft Warning:</strong> You are requesting leave without the standard notice period. Your manager will be notified and this may affect approval.
                   </div>
                 )}
 
                 <form onSubmit={submitLeave} style={styles.form}>
                   <label style={styles.label}>Leave Type</label>
-                  <select value={leaveForm.leave_type} onChange={e => {
-                      setLeaveForm({...leaveForm, leave_type: e.target.value, start_date: "", end_date: ""}); 
+                  <select value={leaveForm.leave_type_id} onChange={e => {
+                      setLeaveForm({...leaveForm, leave_type_id: e.target.value, start_date: "", end_date: ""}); 
                       setMsg({text: "", type: ""});
                     }} style={styles.input}>
-                    <option value="Sick Leave">Sick Leave</option>
-                    <option value="Casual Leave">Casual Leave</option>
-                    <option value="Emergency Leave">Emergency Leave</option>
-                    <option value="Leave Without Pay">Leave Without Pay (LWP)</option>
+                    {leaveTypes.map(t => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
                   </select>
 
                   <div style={{ display: "flex", gap: "15px" }}>
@@ -193,19 +212,51 @@ const RequestLeave = () => {
                   </div>
 
                   {!isMultiDay && (
-                    <div>
-                      <label style={styles.label}>Duration (For Single Day)</label>
-                      <select value={leaveForm.duration} onChange={e => setLeaveForm({...leaveForm, duration: e.target.value})} style={styles.input}>
-                        <option value="Full Day">Full Day</option>
-                        <option value="Half Day (Forenoon)">Half Day (Forenoon)</option>
-                        <option value="Half Day (Afternoon)">Half Day (Afternoon)</option>
-                      </select>
+                    <div style={{ display: "flex", gap: "15px" }}>
+                      <div style={{flex: 1}}>
+                        <label style={styles.label}>Duration (For Single Day)</label>
+                        <select value={leaveForm.leave_portion} onChange={e => setLeaveForm({...leaveForm, leave_portion: e.target.value})} style={styles.input}>
+                          <option value="FULL_DAY">Full Day</option>
+                          <option value="FIRST_HALF">Half Day (Forenoon)</option>
+                          <option value="SECOND_HALF">Half Day (Afternoon)</option>
+                          <option value="HOURLY">Hourly Duration</option>
+                        </select>
+                      </div>
+                      
+                      {leaveForm.leave_portion === 'HOURLY' && (
+                        <div style={{flex: 1}}>
+                          <label style={styles.label}>Hours</label>
+                          <input 
+                            type="number" 
+                            min="1" 
+                            max="8" 
+                            step="0.5" 
+                            value={leaveForm.hourly_duration} 
+                            onChange={e => setLeaveForm({...leaveForm, hourly_duration: e.target.value})} 
+                            required 
+                            style={styles.input} 
+                          />
+                        </div>
+                      )}
                     </div>
                   )}
 
                   <label style={styles.label}>Reason</label>
                   <textarea placeholder="Briefly explain the reason for leave..." value={leaveForm.reason} onChange={e => setLeaveForm({...leaveForm, reason: e.target.value})} required style={{...styles.input, height: "100px", resize: "none"}} />
                   
+                  {selectedType && selectedType.requires_documentation && (
+                    <div>
+                      <label style={styles.label}>Supporting Document (Required)</label>
+                      <input 
+                        type="file" 
+                        onChange={e => setLeaveForm({...leaveForm, file: e.target.files[0]})} 
+                        style={styles.fileInput}
+                        required
+                        accept=".pdf,.jpg,.jpeg,.png"
+                      />
+                    </div>
+                  )}
+
                   <button type="submit" style={styles.submitBtn}>Submit Application</button>
                 </form>
               </div>
@@ -236,8 +287,11 @@ const RequestLeave = () => {
                             }
                           </td>
                           <td style={styles.td}>
-                            <strong style={{color: "var(--text-main)"}}>{l.leave_type}</strong><br/>
-                            <span style={{fontSize: "12px", color: "var(--text-muted)"}}>{l.duration}</span>
+                            <strong style={{color: "var(--text-main)"}}>{l.leave_type_name || l.leave_type}</strong><br/>
+                            <span style={{fontSize: "12px", color: "var(--text-muted)"}}>
+                              {l.leave_portion ? l.leave_portion.replace('_', ' ') : l.duration} 
+                              {l.leave_portion === 'HOURLY' ? ` (${l.hourly_duration}h)` : ''}
+                            </span>
                           </td>
                           <td style={styles.td}>
                             <span style={{...styles.badge, ...getStatusStyle(l.status)}}>
@@ -267,7 +321,7 @@ const RequestLeave = () => {
   );
 };
 
-// Updated Styles for a premium side-by-side look
+// Styles
 const styles = {
   layout: { display: "flex", minHeight: "100vh", backgroundColor: "#f8fafc" },
   main: { flexGrow: 1, marginLeft: "260px" },
@@ -277,19 +331,20 @@ const styles = {
   pageTitle: { margin: "0 0 5px 0", fontSize: "24px", color: "var(--text-main)", fontWeight: "700" },
   pageSubtitle: { margin: "0", fontSize: "14px", color: "var(--text-muted)" },
 
-  // Grid replaces the max-width restriction
   gridContainer: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(450px, 1fr))", gap: "30px" },
   
   card: { backgroundColor: "var(--bg-card)", borderRadius: "12px", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)", border: "1px solid var(--border)", overflow: "hidden", display: "flex", flexDirection: "column" },
   cardHeader: { backgroundColor: "#f8fafc", padding: "20px 25px", borderBottom: "1px solid var(--border)" },
   cardTitle: { fontSize: "18px", color: "var(--text-main)", margin: 0, fontWeight: "600" },
   cardBody: { padding: "25px" },
-  cardBodyTable: { padding: "0" }, // No padding so table stretches edge-to-edge
+  cardBodyTable: { padding: "0" }, 
 
-  infoBanner: { backgroundColor: "#fffbeb", color: "#b45309", padding: "12px 16px", borderRadius: "8px", border: "1px solid #fde68a", fontSize: "14px", marginBottom: "20px", display: "flex", alignItems: "center" },
+  infoBanner: { backgroundColor: "#eff6ff", color: "#1e3a8a", padding: "12px 16px", borderRadius: "8px", border: "1px solid #bfdbfe", fontSize: "14px", marginBottom: "10px", display: "flex", alignItems: "center" },
+  warningBanner: { backgroundColor: "#fffbeb", color: "#b45309", padding: "12px 16px", borderRadius: "8px", border: "1px solid #fde68a", fontSize: "14px", marginBottom: "20px", display: "flex", alignItems: "center" },
   form: { display: "flex", flexDirection: "column", gap: "18px" },
   label: { fontSize: "14px", fontWeight: "600", color: "#475569", marginBottom: "6px", display: "block" },
   input: { padding: "12px 16px", border: "1px solid #cbd5e1", borderRadius: "8px", width: "100%", outline: "none", fontSize: "14px", backgroundColor: "#fff", transition: "border-color 0.2s", color: "#0f172a" },
+  fileInput: { padding: "10px", border: "1px dashed #cbd5e1", borderRadius: "8px", width: "100%", fontSize: "14px", backgroundColor: "#f8fafc", color: "#64748b" },
   
   submitBtn: { backgroundColor: "var(--primary)", color: "white", padding: "14px", border: "none", borderRadius: "8px", fontWeight: "600", cursor: "pointer", fontSize: "15px", marginTop: "10px", transition: "opacity 0.2s" },
   
@@ -299,7 +354,6 @@ const styles = {
   tr: { borderBottom: "1px solid var(--border)", transition: "background-color 0.2s" },
   td: { padding: "16px 25px", color: "var(--text-main)", fontSize: "14px", verticalAlign: "middle" },
   
-  // Status Badges
   badge: { padding: "6px 12px", borderRadius: "20px", fontSize: "12px", fontWeight: "600", display: "inline-block" },
   badgeSuccess: { backgroundColor: "#dcfce7", color: "#166534" },
   badgeError: { backgroundColor: "#fee2e2", color: "#991b1b" },

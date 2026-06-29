@@ -32,6 +32,7 @@ const AttendanceTable = ({ reports, loading }) => {
             <th style={styles.th}>First In</th>
             <th style={styles.th}>Last Out</th>
             <th style={styles.th}>Total Hrs</th>
+            <th style={styles.th}>Leave Type</th>
             <th style={styles.th}>Status</th>
           </tr>
         </thead>
@@ -71,17 +72,37 @@ const AttendanceTable = ({ reports, loading }) => {
               </td>
 
               <td style={styles.td}>
-                <span
-                  style={
-                    log.status === "PRESENT"
-                      ? styles.badgePresent
-                      : log.status === "ABSENT"
-                      ? styles.badgeAbsent
-                      : styles.badgeOther
-                  }
-                >
-                  {log.status}
-                </span>
+                {log.leave_type_name ? (
+                  <span style={{ fontWeight: '600', color: '#6366f1', fontSize: '13px' }}>{log.leave_type_name}</span>
+                ) : (
+                  <span style={{ color: '#cbd5e1' }}>--</span>
+                )}
+              </td>
+
+              <td style={styles.td}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                  <span
+                    style={
+                      log.core_status === "PRESENT"
+                        ? styles.badgePresent
+                        : log.core_status === "ABSENT"
+                        ? styles.badgeAbsent
+                        : styles.badgeOther
+                    }
+                  >
+                    {log.core_status}
+                  </span>
+                  
+                  {log.modifier_flags && Array.isArray(log.modifier_flags) && log.modifier_flags.length > 0 && (
+                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '2px' }}>
+                      {log.modifier_flags.map((flag, idx) => (
+                        <span key={idx} style={styles.flagChip}>
+                          {flag.replace('_', ' ')}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </td>
             </tr>
           ))}
@@ -89,7 +110,7 @@ const AttendanceTable = ({ reports, loading }) => {
           {reports.length === 0 && (
             <tr>
               <td
-                colSpan="6"
+                colSpan="7"
                 style={styles.emptyState}
               >
                 No processed attendance records found.
@@ -176,6 +197,16 @@ const styles = {
     borderRadius: "12px",
     fontSize: "12px",
     fontWeight: "bold",
+  },
+
+  flagChip: {
+    backgroundColor: "#e2e8f0",
+    color: "#334155",
+    padding: "3px 6px",
+    borderRadius: "4px",
+    fontSize: "10px",
+    fontWeight: "600",
+    textTransform: "uppercase",
   },
 };
 

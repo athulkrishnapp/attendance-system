@@ -23,10 +23,20 @@ exports.uploadAttendance = async (req, res) => {
       holidayMap[dateStr] = h.description;
     });
 
-    const employeesRes = await pool.query("SELECT id, employee_code FROM employees");
-    const codeToIdMap = {};
+    const employeesRes = await pool.query(`
+      SELECT e.id, e.employee_code, s.shift_start_time, s.shift_end_time, s.grace_period_minutes, s.required_working_hours
+      FROM employees e
+      LEFT JOIN shifts s ON e.shift_id = s.id
+    `);
+    const empMap = {};
     employeesRes.rows.forEach(emp => {
-      codeToIdMap[emp.employee_code] = emp.id;
+      empMap[emp.employee_code] = {
+        id: emp.id,
+        shift_start_time: emp.shift_start_time,
+        shift_end_time: emp.shift_end_time,
+        grace_period_minutes: emp.grace_period_minutes,
+        required_working_hours: emp.required_working_hours
+      };
     });
 
     const workbook = xlsx.readFile(req.file.path);
@@ -43,22 +53,42 @@ exports.uploadAttendance = async (req, res) => {
     // Inside attendanceController.js - Replace the loop logic
 
     for (const row of data) {
-      const actualEmployeeId = codeToIdMap[row.employee_code];
-      if (!actualEmployeeId) continue; 
+      const empInfo = empMap[row.employee_code];
+      if (!empInfo) continue; 
+      const actualEmployeeId = empInfo.id; 
 
-      // Robust parsing: Handle string OR already-parsed Date object
+      // Robust parsing: Enforce Local Timezone interpretation to prevent UTC shift
       let scanDateObj;
-      if (typeof row.scan_time === 'string') {
-        const [datePart, timePart] = row.scan_time.split(' ');
-        const [year, month, day] = datePart.split('-');
-        const [hour, minute, second] = timePart ? timePart.split(':') : [0,0,0];
-        scanDateObj = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+      if (typeof row.scan_time === 'number') {
+        // Excel serial date (which includes date and time)
+        const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+        const utcDate = new Date(excelEpoch.getTime() + Math.round(row.scan_time * 86400000));
+        // Construct LOCAL date using UTC parts to prevent shift
+        scanDateObj = new Date(utcDate.getUTCFullYear(), utcDate.getUTCMonth(), utcDate.getUTCDate(), utcDate.getUTCHours(), utcDate.getUTCMinutes(), utcDate.getUTCSeconds());
+      } else if (typeof row.scan_time === 'string') {
+        // Try strict manual parsing first to prevent timezone shifts
+        const cleanedStr = row.scan_time.trim().replace(/\//g, '-');
+        const [datePart, timePart] = cleanedStr.split(' ');
+        
+        if (datePart && timePart) {
+          const [year, month, day] = datePart.split('-');
+          const [hour, minute, second] = timePart.split(':');
+          scanDateObj = new Date(year, month - 1, day, hour || 0, minute || 0, second || 0);
+        } else {
+          scanDateObj = new Date(row.scan_time);
+        }
       } else {
-        // Excel library often parses dates into objects directly
         scanDateObj = new Date(row.scan_time);
       }
+
+      if (isNaN(scanDateObj.getTime())) {
+          continue; // Prevent Invalid Dates from entering the array and destroying the sort function
+      }
       
-      const dateKey = scanDateObj.toISOString().split('T')[0]; 
+      const yearStr = scanDateObj.getFullYear();
+      const monthStr = String(scanDateObj.getMonth() + 1).padStart(2, '0');
+      const dayStr = String(scanDateObj.getDate()).padStart(2, '0');
+      const dateKey = `${yearStr}-${monthStr}-${dayStr}`; 
       
       await pool.query(
         "INSERT INTO attendance_logs (employee_id, scan_time, source, device_id) VALUES ($1, $2, $3, $4)",
@@ -88,33 +118,58 @@ exports.uploadAttendance = async (req, res) => {
       const dayOfWeek = firstIn.getDay(); 
       const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
 
+      // Fetch employee shift or use defaults
+      const empInfo = Object.values(empMap).find(e => e.id === record.employee_id);
+      const shiftStartTime = empInfo?.shift_start_time || settings.shift_start_time;
+      const gracePeriod = empInfo?.grace_period_minutes !== null && empInfo?.grace_period_minutes !== undefined ? empInfo.grace_period_minutes : settings.grace_period_minutes;
+      const requiredHours = empInfo?.required_working_hours !== null && empInfo?.required_working_hours !== undefined ? parseFloat(empInfo.required_working_hours) : parseFloat(settings.required_working_hours);
+
       // Determine Status
-      let status = 'PRESENT';
-      if (record.scans.length === 1) status = 'MISSING_PUNCH';
-      else if (workingHours === 0) status = 'ABSENT';
-      else if (workingHours < settings.required_working_hours / 2) status = 'SHORT_LEAVE';
-      else if (workingHours < settings.required_working_hours) status = 'HALF_DAY';
+      let core_status = 'PRESENT';
+      let modifier_flags = [];
+
+      if (record.scans.length === 1) core_status = 'MISSING_PUNCH';
+      else if (workingHours === 0) core_status = 'ABSENT';
 
       // Apply Overrides
-      if (isWeekend) status = workingHours > 0 ? 'WEEKEND_WORK' : 'WEEKEND_OFF';
-      else if (holidayName) status = workingHours > 0 ? 'HOLIDAY_WORK' : 'HOLIDAY';
-      else {
-          // Late and Overtime logic
-          const expectedStartTime = new Date(`${record.attendance_date}T${settings.shift_start_time}Z`);
-          const maxGrace = new Date(expectedStartTime.getTime() + (settings.grace_period_minutes * 60000));
+      if (isWeekend) {
+          core_status = 'WEEKEND';
+          if (workingHours > 0) modifier_flags.push('WEEKEND_WORK');
+      } else if (holidayName) {
+          core_status = 'HOLIDAY';
+          if (workingHours > 0) modifier_flags.push('HOLIDAY_WORK');
+      }
+
+      if (core_status === 'PRESENT') {
+          // Time comparisons using purely time strings
+          const firstInTimeString = String(firstIn.getHours()).padStart(2, '0') + ':' + String(firstIn.getMinutes()).padStart(2, '0') + ':' + String(firstIn.getSeconds()).padStart(2, '0');
+          const expectedStartDate = new Date(`1970-01-01T${shiftStartTime}Z`);
+          const actualFirstInDate = new Date(`1970-01-01T${firstInTimeString}Z`);
+          const maxGraceDate = new Date(expectedStartDate.getTime() + (gracePeriod * 60000));
           
-          if (firstIn > maxGrace) status = 'LATE';
-          else if (workingHours > settings.required_working_hours + 1) status = 'OVERTIME';
+          if (actualFirstInDate > maxGraceDate) modifier_flags.push('LATE');
+          if (workingHours > requiredHours + 1) modifier_flags.push('OVERTIME');
+          if (workingHours > 0 && workingHours < requiredHours - 0.5) modifier_flags.push('EARLY_OUT');
       }
 
       await pool.query(`
         INSERT INTO attendance_summary 
-          (employee_id, attendance_date, first_in, last_out, working_hours, status, remarks)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+          (employee_id, attendance_date, first_in, last_out, working_hours, core_status, modifier_flags, remarks)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         ON CONFLICT (employee_id, attendance_date) 
         DO UPDATE SET first_in = EXCLUDED.first_in, last_out = EXCLUDED.last_out, 
-                      working_hours = EXCLUDED.working_hours, status = EXCLUDED.status, remarks = EXCLUDED.remarks
-      `, [record.employee_id, record.attendance_date, firstIn.toTimeString().split(' ')[0], lastOut.toTimeString().split(' ')[0], workingHours, status, "Processed"]);
+                      working_hours = EXCLUDED.working_hours, core_status = EXCLUDED.core_status, 
+                      modifier_flags = EXCLUDED.modifier_flags, remarks = EXCLUDED.remarks
+      `, [
+        record.employee_id, 
+        record.attendance_date, 
+        String(firstIn.getHours()).padStart(2, '0') + ':' + String(firstIn.getMinutes()).padStart(2, '0') + ':' + String(firstIn.getSeconds()).padStart(2, '0'), 
+        String(lastOut.getHours()).padStart(2, '0') + ':' + String(lastOut.getMinutes()).padStart(2, '0') + ':' + String(lastOut.getSeconds()).padStart(2, '0'), 
+        workingHours, 
+        core_status, 
+        JSON.stringify(modifier_flags), 
+        "Processed"
+      ]);
     }
     res.status(200).json({ 
         message: "Smart calculation complete!", 
@@ -129,14 +184,123 @@ exports.uploadAttendance = async (req, res) => {
 
 exports.requestRegularization = async (req, res) => {
   try {
-    const { id } = req.body;
+    const { attendance_summary_id, employee_id, requested_first_in, requested_last_out, reason } = req.body;
+    
+    const empResult = await pool.query("SELECT manager_id FROM employees WHERE id = $1", [employee_id]);
+    const managerId = empResult.rows[0]?.manager_id;
+    const initialStatus = managerId ? 'PENDING_MANAGER' : 'PENDING_ADMIN';
+
+    // Insert into regularization_requests
     await pool.query(
-      "UPDATE attendance_summary SET regularization_status = 'PENDING' WHERE id = $1",
-      [id]
+      `INSERT INTO regularization_requests 
+       (attendance_summary_id, employee_id, requested_first_in, requested_last_out, reason, status)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [attendance_summary_id, employee_id, requested_first_in, requested_last_out, reason, initialStatus]
     );
-    res.json({ message: "Regularization requested successfully." });
+
+    // Update attendance_summary
+    await pool.query(
+      "UPDATE attendance_summary SET regularization_status = $1 WHERE id = $2",
+      [initialStatus, attendance_summary_id]
+    );
+
+    res.status(201).json({ message: "Regularization requested successfully." });
   } catch (err) {
+    console.error("Regularization error:", err);
     res.status(500).json({ error: "Failed to request regularization." });
+  }
+};
+
+exports.getPendingRegularizations = async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT r.*, e.name as employee_name, e.employee_code, m.name as forwarded_by_name
+      FROM regularization_requests r
+      JOIN employees e ON r.employee_id = e.id
+      LEFT JOIN employees m ON r.forwarded_by_id = m.id
+      WHERE r.status IN ('PENDING_MANAGER', 'PENDING_ADMIN', 'PENDING')
+      ORDER BY r.applied_on ASC
+    `);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch pending regularizations." });
+  }
+};
+
+exports.processRegularization = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, manager_remarks, processed_by, rejection_reason } = req.body; 
+
+    if (status === 'REJECTED' && !rejection_reason) {
+      return res.status(400).json({ error: "Rejection reason is required." });
+    }
+
+    const result = await pool.query(
+      `UPDATE regularization_requests 
+       SET status = $1, manager_remarks = $2, processed_by = $3, processed_on = CURRENT_TIMESTAMP, rejection_reason = $4
+       WHERE id = $5
+       RETURNING *`,
+      [status, manager_remarks, processed_by, rejection_reason || null, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Regularization request not found." });
+    }
+
+    const regRequest = result.rows[0];
+
+    if (status === 'APPROVED') {
+      const { requested_first_in, requested_last_out, attendance_summary_id } = regRequest;
+
+      const summaryResult = await pool.query("SELECT * FROM attendance_summary WHERE id = $1", [attendance_summary_id]);
+      if (summaryResult.rows.length > 0) {
+        const summary = summaryResult.rows[0];
+        
+        let workingHours = summary.working_hours;
+        if (requested_first_in && requested_last_out) {
+          const firstInDate = new Date(`1970-01-01T${requested_first_in}Z`);
+          const lastOutDate = new Date(`1970-01-01T${requested_last_out}Z`);
+          workingHours = parseFloat(((lastOutDate - firstInDate) / (1000 * 60 * 60)).toFixed(2));
+        }
+
+        let coreStatus = summary.core_status;
+        if (coreStatus === 'MISSING_PUNCH') {
+          coreStatus = 'PRESENT';
+        }
+
+        await pool.query(
+          `UPDATE attendance_summary 
+           SET first_in = $1, last_out = $2, working_hours = $3, core_status = $4, 
+               regularization_status = 'APPROVED', regularization_manager_id = $5,
+               modifier_flags = COALESCE(modifier_flags, '[]'::jsonb) || '["REGULARIZED"]'::jsonb
+           WHERE id = $6`,
+          [requested_first_in || summary.first_in, requested_last_out || summary.last_out, workingHours, coreStatus, processed_by, attendance_summary_id]
+        );
+      }
+    } else {
+      await pool.query(
+        "UPDATE attendance_summary SET regularization_status = 'REJECTED' WHERE id = $1",
+        [regRequest.attendance_summary_id]
+      );
+    }
+
+    res.json({ message: `Regularization ${status.toLowerCase()} successfully.`, regularization: regRequest });
+  } catch (err) {
+    console.error("Process Regularization Error:", err);
+    res.status(500).json({ error: "Failed to process regularization." });
+  }
+};
+
+exports.forwardRegularization = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { manager_id, attendance_summary_id } = req.body;
+    await pool.query("UPDATE regularization_requests SET status = 'PENDING_ADMIN', forwarded_by_id = $1 WHERE id = $2", [manager_id, id]);
+    await pool.query("UPDATE attendance_summary SET regularization_status = 'PENDING_ADMIN' WHERE id = $1", [attendance_summary_id]);
+    res.json({ message: "Regularization forwarded to Admin successfully." });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to forward regularization" });
   }
 };
 
@@ -181,9 +345,11 @@ exports.getAttendanceByDate = async (req, res) => {
     const { date } = req.params; // Expected format: YYYY-MM-DD
     
     const result = await pool.query(
-      `SELECT a.*, e.name, e.employee_code 
+      `SELECT a.*, e.name, e.employee_code, d.department_name, s.shift_name 
        FROM attendance_summary a 
        JOIN employees e ON a.employee_id = e.id 
+       LEFT JOIN departments d ON e.department_id = d.id
+       LEFT JOIN shifts s ON e.shift_id = s.id
        WHERE a.attendance_date = $1
        ORDER BY e.name ASC`,
       [date]

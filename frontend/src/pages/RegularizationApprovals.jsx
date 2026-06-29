@@ -3,9 +3,9 @@ import API, { api } from "../services/api";
 import Sidebar from "../components/Sidebar";
 import Navbar from "../components/Navbar";
 
-const LeaveApprovals = () => {
+const RegularizationApprovals = () => {
   const user = JSON.parse(localStorage.getItem("user"));
-  const [leaves, setLeaves] = useState([]);
+  const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Reject Modal State
@@ -14,35 +14,26 @@ const LeaveApprovals = () => {
   const [rejectReason, setRejectReason] = useState("");
 
   useEffect(() => {
-    fetchLeaves();
+    fetchRequests();
   }, []);
 
-  const fetchLeaves = async () => {
+  const fetchRequests = async () => {
     try {
-      const res = await API.get("/leaves/all");
-      setLeaves(res.data);
+      const res = await api.regularizations.getAllPending();
+      setRequests(res.data);
       setLoading(false);
     } catch (err) {
-      console.error("Failed to fetch leaves", err);
+      console.error("Failed to fetch regularizations", err);
       setLoading(false);
     }
   };
 
   const handleApprove = async (id) => {
     try {
-      await api.leaveRequests.approve(id);
-      fetchLeaves();
+      await api.regularizations.process(id, { status: 'APPROVED', manager_remarks: 'Approved' });
+      fetchRequests();
     } catch (err) {
-      alert("Failed to approve request");
-    }
-  };
-
-  const handleForward = async (id) => {
-    try {
-      await api.leaveRequests.forward(id, { manager_id: user.id });
-      fetchLeaves();
-    } catch (err) {
-      alert("Failed to forward request");
+      alert("Failed to process regularization");
     }
   };
 
@@ -55,22 +46,32 @@ const LeaveApprovals = () => {
   const handleRejectSubmit = async (e) => {
     e.preventDefault();
     try {
-      await api.leaveRequests.reject(rejectId, { rejection_reason: rejectReason });
+      await api.regularizations.process(rejectId, {
+        status: 'REJECTED',
+        rejection_reason: rejectReason,
+        manager_remarks: rejectReason
+      });
       setShowRejectModal(false);
-      fetchLeaves();
+      fetchRequests();
     } catch (err) {
-      alert("Failed to reject request");
+      alert("Failed to reject regularization");
     }
   };
 
-  // Filter actionable leaves for the logged in user
-  const actionableLeaves = leaves.filter(l => {
-    if (user.role === 'MANAGER' && l.status === 'PENDING_MANAGER' && l.employee_id !== user.id) return true;
-    if (user.role === 'ADMIN' && (l.status === 'PENDING_ADMIN' || l.status === 'PENDING_MANAGER' || l.status === 'PENDING')) return true;
+  const handleForward = async (id, attendance_summary_id) => {
+    try {
+      await api.regularizations.forward(id, { manager_id: user.id, attendance_summary_id });
+      fetchRequests();
+    } catch (err) {
+      alert("Failed to forward regularization");
+    }
+  };
+
+  const actionableRequests = requests.filter(r => {
+    if (user.role === 'MANAGER' && r.status === 'PENDING_MANAGER' && r.employee_id !== user.id) return true;
+    if (user.role === 'ADMIN' && (r.status === 'PENDING_ADMIN' || r.status === 'PENDING_MANAGER' || r.status === 'PENDING')) return true;
     return false;
   });
-
-  const historyLeaves = leaves.filter(l => l.status === 'APPROVED' || l.status === 'REJECTED');
 
   return (
     <div style={styles.layout}>
@@ -80,8 +81,8 @@ const LeaveApprovals = () => {
         <div style={styles.contentPadding}>
           
           <header style={styles.header}>
-            <h2 style={styles.title}>Leave Request Inbox</h2>
-            <p style={styles.subtitle}>Review and manage employee time-off requests.</p>
+            <h2 style={styles.title}>Regularization Inbox</h2>
+            <p style={styles.subtitle}>Review missing punches and attendance regularization requests.</p>
           </header>
 
           <div style={styles.tableContainer}>
@@ -90,65 +91,70 @@ const LeaveApprovals = () => {
                 <thead>
                   <tr>
                     <th style={styles.th}>Employee</th>
-                    <th style={styles.th}>Leave Type</th>
-                    <th style={styles.th}>Dates</th>
+                    <th style={styles.th}>Date</th>
+                    <th style={styles.th}>Actual Swipes</th>
+                    <th style={styles.th}>Requested Times</th>
                     <th style={styles.th}>Reason</th>
-                    <th style={styles.th}>Status</th>
                     <th style={styles.th}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {actionableLeaves.map((l) => (
-                    <tr key={l.id} style={styles.tr}>
+                  {actionableRequests.map((r) => (
+                    <tr key={r.id} style={styles.tr}>
                       <td style={styles.td}>
-                        <div style={{ fontWeight: "600" }}>{l.name}</div>
-                        <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>{l.employee_code}</div>
+                        <div style={{ fontWeight: "600" }}>{r.name}</div>
+                        <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>{r.employee_code}</div>
                       </td>
                       <td style={styles.td}>
-                        <span style={styles.typeBadge}>{l.leave_type_name || l.leave_type}</span>
-                        <div style={{fontSize: "12px", marginTop: "6px", color: "var(--text-muted)", fontWeight: "500"}}>
-                          {l.leave_portion ? l.leave_portion.replace('_', ' ') : 'FULL DAY'}
-                          {l.leave_portion === 'HOURLY' ? ` (${l.hourly_duration}h)` : ''}
-                        </div>
+                        <strong>{new Date(r.attendance_date).toLocaleDateString()}</strong>
                       </td>
                       <td style={styles.td}>
-                        {new Date(l.start_date).toLocaleDateString()} to <br/> 
-                        {new Date(l.end_date).toLocaleDateString()}
+                        In: {r.actual_first_in || 'Missing'}<br/>
+                        Out: {r.actual_last_out || 'Missing'}
                       </td>
                       <td style={styles.td}>
-                        {l.reason}
-                        {l.document_url && (
-                          <div style={{marginTop: "5px"}}>
-                            <a href={`http://localhost:5001/${l.document_url}`} target="_blank" rel="noreferrer" style={{fontSize: "12px", color: "var(--primary)"}}>📎 View Document</a>
-                          </div>
-                        )}
+                        <strong style={{color: "var(--primary)"}}>In: {r.requested_first_in}</strong><br/>
+                        <strong style={{color: "var(--primary)"}}>Out: {r.requested_last_out}</strong>
                       </td>
-                      <td style={styles.td}>
-                        <span style={l.status === 'APPROVED' ? styles.badgeApproved : l.status === 'REJECTED' ? styles.badgeRejected : styles.badgePending}>
-                          {l.status}
-                        </span>
-                        {l.forwarded_by_name && (
-                          <div style={{fontSize: "11px", color: "var(--text-muted)", marginTop: "4px"}}>
-                            Fwd by: {l.forwarded_by_name}
-                          </div>
-                        )}
-                      </td>
+                      <td style={styles.td}>{r.reason}</td>
                       <td style={styles.td}>
                         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                          <button onClick={() => handleApprove(l.id)} style={styles.approveBtn}>Approve</button>
-                          <button onClick={() => openRejectModal(l.id)} style={styles.rejectBtn}>Reject</button>
+                          <button onClick={() => handleApprove(r.id)} style={styles.approveBtn}>Approve</button>
+                          <button onClick={() => openRejectModal(r.id)} style={styles.rejectBtn}>Reject</button>
                           {user.role === 'MANAGER' && (
-                            <button onClick={() => handleForward(l.id)} style={styles.forwardBtn}>Forward to Admin</button>
+                            <button onClick={() => handleForward(r.id, r.attendance_summary_id)} style={styles.forwardBtn}>Forward to Admin</button>
                           )}
                         </div>
                       </td>
                     </tr>
                   ))}
-                  {actionableLeaves.length === 0 && <tr><td colSpan="6" style={{textAlign: "center", padding: "40px", color: "var(--text-muted)"}}>No pending requests require your action.</td></tr>}
+                  {actionableRequests.length === 0 && <tr><td colSpan="6" style={{textAlign: "center", padding: "40px", color: "var(--text-muted)"}}>No pending requests require your action.</td></tr>}
                 </tbody>
               </table>
             )}
           </div>
+          {/* Reject Modal */}
+          {showRejectModal && (
+            <div style={styles.modalOverlay}>
+              <div style={styles.modalContent}>
+                <h3 style={{marginTop: 0, color: "var(--text-main)"}}>Provide Rejection Reason</h3>
+                <form onSubmit={handleRejectSubmit}>
+                  <textarea 
+                    placeholder="Enter reason for rejection..." 
+                    value={rejectReason} 
+                    onChange={(e) => setRejectReason(e.target.value)} 
+                    style={{...styles.input, height: "100px", resize: "none", width: "100%", boxSizing: "border-box", marginBottom: "15px"}} 
+                    required 
+                  />
+                  <div style={{display: "flex", justifyContent: "flex-end", gap: "10px"}}>
+                    <button type="button" onClick={() => setShowRejectModal(false)} style={styles.cancelBtn}>Cancel</button>
+                    <button type="submit" style={styles.rejectModalBtn}>Confirm Rejection</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
         </div>
       </div>
     </div>
@@ -167,10 +173,6 @@ const styles = {
   th: { backgroundColor: "var(--bg-main)", padding: "16px", borderBottom: "1px solid var(--border)", color: "var(--text-muted)", fontSize: "14px", textTransform: "uppercase", letterSpacing: "0.5px" },
   tr: { borderBottom: "1px solid var(--border)" },
   td: { padding: "16px", color: "var(--text-main)", fontSize: "15px" },
-  typeBadge: { backgroundColor: "var(--bg-main)", color: "var(--text-main)", padding: "4px 10px", borderRadius: "20px", fontSize: "12px", fontWeight: "600" },
-  badgeApproved: { backgroundColor: "#d1fae5", color: "#065f46", padding: "4px 10px", borderRadius: "20px", fontSize: "12px", fontWeight: "600" },
-  badgeRejected: { backgroundColor: "#fee2e2", color: "#991b1b", padding: "4px 10px", borderRadius: "20px", fontSize: "12px", fontWeight: "600" },
-  badgePending: { backgroundColor: "#fef08a", color: "#854d0e", padding: "4px 10px", borderRadius: "20px", fontSize: "12px", fontWeight: "600" },
   approveBtn: { backgroundColor: "#10b981", color: "white", border: "none", padding: "8px 16px", borderRadius: "6px", cursor: "pointer", fontWeight: "600", fontSize: "13px" },
   rejectBtn: { backgroundColor: "#ef4444", color: "white", border: "none", padding: "8px 16px", borderRadius: "6px", cursor: "pointer", fontWeight: "600", fontSize: "13px" },
   forwardBtn: { backgroundColor: "#3b82f6", color: "white", border: "none", padding: "8px 16px", borderRadius: "6px", cursor: "pointer", fontWeight: "600", fontSize: "13px" },
@@ -182,4 +184,4 @@ const styles = {
   rejectModalBtn: { backgroundColor: "#ef4444", color: "white", border: "none", padding: "10px 16px", borderRadius: "6px", cursor: "pointer", fontWeight: "600" }
 };
 
-export default LeaveApprovals;
+export default RegularizationApprovals;

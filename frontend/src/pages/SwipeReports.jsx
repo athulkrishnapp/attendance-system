@@ -1,15 +1,19 @@
 import { useState, useEffect } from "react";
-import API from "../services/api";
+import API, { api } from "../services/api";
 import Sidebar from "../components/Sidebar";
 import Navbar from "../components/Navbar";
 
 const SwipeReports = () => {
   const user = JSON.parse(localStorage.getItem("user"));
-  const currentYear = new Date().getFullYear();
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [viewMode, setViewMode] = useState("calendar"); // 'calendar' | 'report'
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [attendance, setAttendance] = useState([]);
   const [loading, setLoading] = useState(true);
+  
+  // Regularization Modal State
+  const [showRegModal, setShowRegModal] = useState(false);
+  const [regForm, setRegForm] = useState({ attendance_summary_id: null, requested_first_in: "", requested_last_out: "", reason: "" });
 
   const months = [
     "January", "February", "March", "April", "May", "June",
@@ -31,11 +35,26 @@ const SwipeReports = () => {
     }
   };
 
-  const handleRegularize = async (id) => {
-    if(!window.confirm("Submit Regularization Request?")) return;
+  const openRegModal = (id, log) => {
+    setRegForm({ 
+      attendance_summary_id: id, 
+      requested_first_in: log.first_in || "", 
+      requested_last_out: log.last_out || "", 
+      reason: "" 
+    });
+    setShowRegModal(true);
+  };
+
+  const submitRegularization = async (e) => {
+    e.preventDefault();
     try {
-      await API.put("/attendance/regularize", { id });
+      await api.regularizations.request({
+        ...regForm,
+        employee_id: user.id
+      });
+      setShowRegModal(false);
       fetchMyAttendance();
+      alert("Regularization request submitted successfully.");
     } catch (err) {
       alert("Failed to submit request.");
     }
@@ -46,18 +65,17 @@ const SwipeReports = () => {
     setViewMode("report");
   };
 
-  // Safely extract the exact DB date directly from the string to prevent Timezone shifts (e.g. May 31 shifting to June 1)
   const filteredLogs = attendance.filter(log => {
     if (!log.attendance_date) return false;
     const yearStr = log.attendance_date.substring(0, 4);
     const monthStr = log.attendance_date.substring(5, 7);
-    return parseInt(monthStr) === parseInt(selectedMonth) && parseInt(yearStr) === currentYear;
+    return parseInt(monthStr) === parseInt(selectedMonth) && parseInt(yearStr) === parseInt(selectedYear);
   });
 
   const totalDays = filteredLogs.length;
-  const presentDays = filteredLogs.filter(l => l.status === "PRESENT").length;
-  const lateDays = filteredLogs.filter(l => l.status === "PRESENT" && l.remarks && l.remarks.includes("LATE ARRIVAL")).length;
-  const halfDays = filteredLogs.filter(l => l.status === "HALF_DAY").length;
+  const presentDays = filteredLogs.filter(l => l.core_status === "PRESENT").length;
+  const lateDays = filteredLogs.filter(l => l.core_status === "PRESENT" && l.remarks && l.remarks.includes("LATE ARRIVAL")).length;
+  const halfDays = filteredLogs.filter(l => l.core_status === "HALF_DAY").length;
 
   return (
     <div style={styles.layout}>
@@ -68,7 +86,14 @@ const SwipeReports = () => {
 
           {viewMode === "calendar" ? (
             <div>
-              <h3 style={styles.calendarTitle}>Select Month to View Attendance ({currentYear})</h3>
+              <div style={{ display: 'flex', gap: '20px', alignItems: 'center', marginBottom: "20px" }}>
+                <h3 style={{...styles.calendarTitle, marginBottom: 0}}>Select Month to View Attendance</h3>
+                <select value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)} style={styles.monthSelect}>
+                  {[0,1,2,3,4].map(y => (
+                    <option key={y} value={new Date().getFullYear() - y}>{new Date().getFullYear() - y}</option>
+                  ))}
+                </select>
+              </div>
               <div style={styles.calendarGrid}>
                 {months.map((monthName, index) => (
                   <button 
@@ -77,8 +102,9 @@ const SwipeReports = () => {
                     onClick={() => handleMonthClick(index + 1)}
                   >
                     <span style={styles.monthName}>{monthName}</span>
-                    <span style={styles.yearLabel}>{currentYear}</span>
+                    <span style={styles.yearLabel}>{selectedYear}</span>
                   </button>
+
                 ))}
               </div>
             </div>
@@ -90,11 +116,18 @@ const SwipeReports = () => {
                   <h3 style={{margin: 0, color: "var(--text-main)"}}>Swipe Details</h3>
                 </div>
                 
-                <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} style={styles.monthSelect}>
-                  {months.map((monthName, i) => (
-                    <option key={i+1} value={i+1}>{monthName} {currentYear}</option>
-                  ))}
-                </select>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} style={styles.monthSelect}>
+                    {months.map((monthName, i) => (
+                      <option key={i+1} value={i+1}>{monthName}</option>
+                    ))}
+                  </select>
+                  <select value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)} style={styles.monthSelect}>
+                    {[0,1,2,3,4].map(y => (
+                      <option key={y} value={new Date().getFullYear() - y}>{new Date().getFullYear() - y}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               {/* Monthly Summary Graph */}
@@ -134,11 +167,11 @@ const SwipeReports = () => {
                             <td style={styles.td}>{log.first_in || "Missing"}</td>
                             <td style={styles.td}>{log.last_out || "Missing"}</td>
                             <td style={{...styles.td, color: log.remarks && log.remarks.includes("LATE ARRIVAL") ? "#ef4444" : "inherit" }}>
-                              {log.remarks || (log.status === "HALF_DAY" ? "Half Day" : "-")}
+                              {log.remarks || (log.core_status === "HALF_DAY" ? "Half Day" : "-")}
                             </td>
                             <td style={styles.td}>
-                              {(!log.first_in || (log.remarks && log.remarks.includes("LATE ARRIVAL"))) && !log.regularization_status ? (
-                                <button onClick={() => handleRegularize(log.id)} style={styles.regBtn}>Request</button>
+                              {(log.core_status === 'MISSING_PUNCH' || log.core_status === 'ABSENT' || (log.remarks && log.remarks.includes("LATE ARRIVAL"))) && !log.regularization_status ? (
+                                <button onClick={() => openRegModal(log.id, log)} style={styles.regBtn}>Request</button>
                               ) : "-"}
                             </td>
                             <td style={{...styles.td, fontWeight: "600", color: log.regularization_status === 'PENDING' ? '#8b5cf6' : 'inherit'}}>
@@ -158,6 +191,45 @@ const SwipeReports = () => {
           )}
         </div>
       </div>
+      
+      {/* Regularization Modal */}
+      {showRegModal && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modalContent}>
+            <h3 style={{marginTop: 0, color: "var(--text-main)"}}>Request Regularization</h3>
+            <p style={{fontSize: "14px", color: "var(--text-muted)", marginBottom: "20px"}}>
+              Please specify the actual times you worked and the reason for the missing/incorrect punch.
+            </p>
+            <form onSubmit={submitRegularization} style={{display: "flex", flexDirection: "column", gap: "15px"}}>
+              <div style={{display: "flex", gap: "15px"}}>
+                <div style={{flex: 1}}>
+                  <label style={styles.label}>First In</label>
+                  <input type="time" value={regForm.requested_first_in} onChange={e => setRegForm({...regForm, requested_first_in: e.target.value})} style={styles.input} required />
+                </div>
+                <div style={{flex: 1}}>
+                  <label style={styles.label}>Last Out</label>
+                  <input type="time" value={regForm.requested_last_out} onChange={e => setRegForm({...regForm, requested_last_out: e.target.value})} style={styles.input} required />
+                </div>
+              </div>
+              <div>
+                <label style={styles.label}>Reason</label>
+                <textarea 
+                  placeholder="e.g., Forgot to swipe, System error, Business travel..." 
+                  value={regForm.reason} 
+                  onChange={e => setRegForm({...regForm, reason: e.target.value})} 
+                  style={{...styles.input, height: "80px", resize: "none"}} 
+                  required 
+                />
+              </div>
+              <div style={{display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "10px"}}>
+                <button type="button" onClick={() => setShowRegModal(false)} style={styles.cancelBtn}>Cancel</button>
+                <button type="submit" style={styles.submitModalBtn}>Submit Request</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
@@ -187,7 +259,14 @@ const styles = {
   th: { backgroundColor: "var(--bg-main)", padding: "14px 20px", borderBottom: "1px solid var(--border)", color: "var(--text-muted)", fontSize: "13px", fontWeight: "600", textTransform: "uppercase" },
   tr: { borderBottom: "1px solid var(--border)" },
   td: { padding: "15px 20px", color: "var(--text-main)", fontSize: "14px" },
-  regBtn: { backgroundColor: "var(--primary)", color: "white", border: "none", padding: "8px 16px", borderRadius: "6px", fontSize: "12px", cursor: "pointer", fontWeight: "600" }
+  regBtn: { backgroundColor: "var(--primary)", color: "white", border: "none", padding: "8px 16px", borderRadius: "6px", fontSize: "12px", cursor: "pointer", fontWeight: "600" },
+  
+  modalOverlay: { position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", backgroundColor: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000 },
+  modalContent: { backgroundColor: "white", padding: "30px", borderRadius: "12px", width: "450px", boxShadow: "0 10px 25px rgba(0,0,0,0.15)" },
+  label: { display: "block", fontSize: "13px", fontWeight: "600", color: "#475569", marginBottom: "6px" },
+  input: { width: "100%", padding: "10px 14px", border: "1px solid #cbd5e1", borderRadius: "6px", fontSize: "14px", outline: "none" },
+  cancelBtn: { backgroundColor: "transparent", color: "#475569", border: "1px solid #cbd5e1", padding: "10px 16px", borderRadius: "6px", cursor: "pointer", fontWeight: "600" },
+  submitModalBtn: { backgroundColor: "var(--primary)", color: "white", border: "none", padding: "10px 16px", borderRadius: "6px", cursor: "pointer", fontWeight: "600" }
 };
 
 export default SwipeReports;

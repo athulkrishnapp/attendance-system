@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import API from "../services/api";
+import { useState, useEffect, useMemo } from "react";
+import API, { api } from "../services/api";
 import Sidebar from "../components/Sidebar";
 import Navbar from "../components/Navbar";
 
@@ -17,6 +17,12 @@ const AdminDashboard = () => {
   const [daysInMonth, setDaysInMonth] = useState([]);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedEditDate, setSelectedEditDate] = useState(null);
+  const [dailyAttendance, setDailyAttendance] = useState([]);
+  const [modalFilterShift, setModalFilterShift] = useState("");
+  const [modalFilterDept, setModalFilterDept] = useState("");
+  const [modalFilterStaff, setModalFilterStaff] = useState("");
+  const [editingRecordId, setEditingRecordId] = useState(null);
+  const [editRecordForm, setEditRecordForm] = useState({});
 
   const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -141,6 +147,44 @@ const AdminDashboard = () => {
       setUploadStatus({ loading: false, message: "Upload failed. Check format.", error: true });
     }
   };
+
+  const handleOpenEditModal = async (dateStr) => {
+    setSelectedEditDate(dateStr);
+    setIsEditModalOpen(true);
+    setDailyAttendance([]);
+    try {
+      const res = await api.attendance.getByDate(dateStr);
+      setDailyAttendance(res.data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleSaveRecord = async (id) => {
+    try {
+      await api.attendance.updateRecord(id, editRecordForm);
+      setEditingRecordId(null);
+      const res = await api.attendance.getByDate(selectedEditDate);
+      setDailyAttendance(res.data);
+    } catch (err) {
+      console.error("Failed to update record");
+    }
+  };
+
+  const filteredDailyAttendance = useMemo(() => {
+    return dailyAttendance.filter(r => {
+      const matchShift = modalFilterShift ? r.shift_name === modalFilterShift : true;
+      const matchDept = modalFilterDept ? r.department_name === modalFilterDept : true;
+      const matchStaff = modalFilterStaff 
+        ? (r.name?.toLowerCase().includes(modalFilterStaff.toLowerCase()) || 
+           r.employee_code?.toLowerCase().includes(modalFilterStaff.toLowerCase()))
+        : true;
+      return matchShift && matchDept && matchStaff;
+    });
+  }, [dailyAttendance, modalFilterShift, modalFilterDept, modalFilterStaff]);
+
+  const uniqueShifts = useMemo(() => Array.from(new Set(dailyAttendance.map(r => r.shift_name).filter(Boolean))), [dailyAttendance]);
+  const uniqueDepts = useMemo(() => Array.from(new Set(dailyAttendance.map(r => r.department_name).filter(Boolean))), [dailyAttendance]);
 
   // Safe percentage calculation for the graph
   const presentPct = attendanceStats.total > 0 ? Math.round((attendanceStats.present / attendanceStats.total) * 100) : 0;
@@ -296,7 +340,7 @@ const AdminDashboard = () => {
                     
                     <div style={styles.dayActions}>
                       {day.status === "UPLOADED" ? (
-                        <button onClick={() => {setSelectedEditDate(day.date); setIsEditModalOpen(true);}} style={styles.editBtn}>Edit / View</button>
+                        <button onClick={() => handleOpenEditModal(day.date)} style={styles.editBtn}>Edit / View</button>
                       ) : day.isFuture ? (  
                         <span style={{fontSize: '11px', color: '#94a3b8', textAlign: 'center', display: 'block'}}>Not Available</span>
                       ) : (
@@ -317,9 +361,91 @@ const AdminDashboard = () => {
       
       {isEditModalOpen && (
         <div style={styles.modalOverlay}>
-            <div style={styles.modalContent}>
-                <h3>Edit Attendance for {selectedEditDate}</h3>
-                <button onClick={() => setIsEditModalOpen(false)} style={styles.uploadBtnDisabledCompact}>Close</button>
+            <div style={{...styles.modalContent, width: "90vw", maxWidth: "1200px"}}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                    <h3 style={{ margin: 0 }}>Attendance for {selectedEditDate}</h3>
+                    <button onClick={() => { setIsEditModalOpen(false); setDailyAttendance([]); setEditingRecordId(null); }} style={styles.cancelBtn}>Close</button>
+                </div>
+
+                <div style={{ display: 'flex', gap: '15px', marginBottom: '20px' }}>
+                    <select value={modalFilterShift} onChange={(e) => setModalFilterShift(e.target.value)} style={styles.input}>
+                        <option value="">All Shifts</option>
+                        {uniqueShifts.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                    <select value={modalFilterDept} onChange={(e) => setModalFilterDept(e.target.value)} style={styles.input}>
+                        <option value="">All Departments</option>
+                        {uniqueDepts.map(d => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                    <input type="text" placeholder="Search staff..." value={modalFilterStaff} onChange={(e) => setModalFilterStaff(e.target.value)} style={styles.input} />
+                </div>
+
+                <div style={{ overflowX: 'auto', maxHeight: '60vh' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                        <thead>
+                            <tr>
+                                <th style={styles.th}>Employee</th>
+                                <th style={styles.th}>Department</th>
+                                <th style={styles.th}>Shift</th>
+                                <th style={styles.th}>In Time</th>
+                                <th style={styles.th}>Out Time</th>
+                                <th style={styles.th}>Work Hrs</th>
+                                <th style={styles.th}>Status</th>
+                                <th style={styles.th}>Remarks</th>
+                                <th style={styles.th}>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {filteredDailyAttendance.map(record => {
+                                const isEditing = editingRecordId === record.id;
+                                return (
+                                    <tr key={record.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                        <td style={{ padding: '10px' }}><strong>{record.name}</strong><br/><span style={{ fontSize: '11px', color: '#64748b' }}>{record.employee_code}</span></td>
+                                        <td style={{ padding: '10px' }}>{record.department_name}</td>
+                                        <td style={{ padding: '10px' }}>{record.shift_name}</td>
+                                        
+                                        {isEditing ? (
+                                            <>
+                                                <td style={{ padding: '10px' }}><input type="time" value={editRecordForm.first_in || ''} onChange={e => setEditRecordForm({...editRecordForm, first_in: e.target.value})} style={styles.inputSmall} /></td>
+                                                <td style={{ padding: '10px' }}><input type="time" value={editRecordForm.last_out || ''} onChange={e => setEditRecordForm({...editRecordForm, last_out: e.target.value})} style={styles.inputSmall} /></td>
+                                                <td style={{ padding: '10px' }}><input type="number" step="0.01" value={editRecordForm.working_hours || ''} onChange={e => setEditRecordForm({...editRecordForm, working_hours: e.target.value})} style={{...styles.inputSmall, width: '60px'}} /></td>
+                                                <td style={{ padding: '10px' }}>
+                                                    <select value={editRecordForm.core_status || ''} onChange={e => setEditRecordForm({...editRecordForm, core_status: e.target.value})} style={styles.inputSmall}>
+                                                        <option value="PRESENT">PRESENT</option>
+                                                        <option value="ABSENT">ABSENT</option>
+                                                        <option value="HALF_DAY">HALF_DAY</option>
+                                                        <option value="LEAVE">LEAVE</option>
+                                                        <option value="HOLIDAY">HOLIDAY</option>
+                                                        <option value="WEEKEND">WEEKEND</option>
+                                                        <option value="MISSING_PUNCH">MISSING_PUNCH</option>
+                                                    </select>
+                                                </td>
+                                                <td style={{ padding: '10px' }}><input type="text" value={editRecordForm.remarks || ''} onChange={e => setEditRecordForm({...editRecordForm, remarks: e.target.value})} style={styles.inputSmall} /></td>
+                                                <td style={{ padding: '10px' }}>
+                                                    <button onClick={() => handleSaveRecord(record.id)} style={styles.saveBtn}>Save</button>
+                                                    <button onClick={() => setEditingRecordId(null)} style={styles.cancelLinkBtn}>Cancel</button>
+                                                </td>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <td style={{ padding: '10px' }}>{record.first_in || '-'}</td>
+                                                <td style={{ padding: '10px' }}>{record.last_out || '-'}</td>
+                                                <td style={{ padding: '10px' }}>{record.working_hours || '-'}</td>
+                                                <td style={{ padding: '10px' }}>{record.core_status || '-'}</td>
+                                                <td style={{ padding: '10px' }}>{record.remarks || '-'}</td>
+                                                <td style={{ padding: '10px' }}>
+                                                    <button onClick={() => { setEditingRecordId(record.id); setEditRecordForm(record); }} style={styles.editLinkBtn}>Edit</button>
+                                                </td>
+                                            </>
+                                        )}
+                                    </tr>
+                                );
+                            })}
+                            {filteredDailyAttendance.length === 0 && (
+                                <tr><td colSpan="9" style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>No records found.</td></tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
       )}
@@ -391,7 +517,15 @@ const styles = {
   editBtn: { width: "100%", backgroundColor: "#f8fafc", border: "1px solid #cbd5e1", color: "#475569", padding: "6px", borderRadius: "6px", fontSize: "11px", cursor: "pointer", fontWeight: "700", transition: "all 0.2s" },
   
   modalOverlay: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(15, 23, 42, 0.6)", backdropFilter: "blur(4px)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000 },
-  modalContent: { backgroundColor: "white", padding: "30px", borderRadius: "16px", width: "500px", maxWidth: "90%", boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)" }
+  modalContent: { backgroundColor: "white", padding: "30px", borderRadius: "16px", width: "500px", maxWidth: "90%", boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)" },
+  
+  cancelBtn: { backgroundColor: "transparent", color: "#475569", border: "1px solid #cbd5e1", padding: "8px 16px", borderRadius: "6px", cursor: "pointer", fontWeight: "600" },
+  saveBtn: { backgroundColor: "#0f172a", color: "white", border: "none", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", fontWeight: "600", fontSize: "11px", marginRight: "6px" },
+  editLinkBtn: { backgroundColor: "transparent", color: "#2563eb", border: "none", cursor: "pointer", fontWeight: "600", fontSize: "13px" },
+  cancelLinkBtn: { backgroundColor: "transparent", color: "#94a3b8", border: "none", cursor: "pointer", fontWeight: "600", fontSize: "11px" },
+  input: { padding: "10px", border: "1px solid #cbd5e1", borderRadius: "6px", fontSize: "14px", outline: "none", flex: 1 },
+  inputSmall: { padding: "6px", border: "1px solid #cbd5e1", borderRadius: "6px", fontSize: "12px", outline: "none", width: "100px", boxSizing: "border-box" },
+  th: { backgroundColor: "#f8fafc", padding: "12px 10px", borderBottom: "2px solid #e2e8f0", color: "#64748b", fontSize: "12px", textTransform: "uppercase", fontWeight: "700" }
 };
 
 export default AdminDashboard;

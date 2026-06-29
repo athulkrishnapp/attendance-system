@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import API from "../services/api";
 import Sidebar from "../components/Sidebar";
 import Navbar from "../components/Navbar";
@@ -10,6 +10,24 @@ const Profile = () => {
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [passwords, setPasswords] = useState({ newPassword: "", confirmPassword: "" });
   const [msg, setMsg] = useState({ text: "", type: "" });
+  
+  // Leave Balances state
+  const [balances, setBalances] = useState([]);
+  const [showBalanceModal, setShowBalanceModal] = useState(false);
+  const [balanceForm, setBalanceForm] = useState({ leave_type_id: "", action_type: "CARRY_FORWARD", days: "" });
+
+  useEffect(() => {
+    fetchBalances();
+  }, []);
+
+  const fetchBalances = async () => {
+    try {
+      const res = await api.leaveRequests.getBalances(user.id);
+      setBalances(res.data);
+    } catch (err) {
+      console.error("Failed to fetch leave balances");
+    }
+  };
 
   const handlePasswordChange = async (e) => {
     e.preventDefault();
@@ -28,6 +46,23 @@ const Profile = () => {
       setTimeout(() => setMsg({ text: "", type: "" }), 3000);
     } catch (err) {
       setMsg({ text: "Failed to update password.", type: "error" });
+    }
+  };
+
+  const handleBalanceAction = async (e) => {
+    e.preventDefault();
+    try {
+      await api.leaveRequests.requestBalanceAction({
+        employee_id: user.id,
+        leave_type_id: balanceForm.leave_type_id,
+        action_type: balanceForm.action_type,
+        days: parseFloat(balanceForm.days)
+      });
+      alert("Request submitted successfully!");
+      setShowBalanceModal(false);
+      setBalanceForm({ leave_type_id: "", action_type: "CARRY_FORWARD", days: "" });
+    } catch (err) {
+      alert("Failed to submit request.");
     }
   };
 
@@ -71,7 +106,66 @@ const Profile = () => {
                 </form>
               )}
             </div>
+
+            {/* Leave Balances Section */}
+            <div style={{...styles.card, gridColumn: "1 / -1"}}>
+              <div style={{display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px"}}>
+                <h3 style={{margin: 0, color: "#0f172a"}}>Leave Balances</h3>
+                <button style={styles.toggleBtn} onClick={() => setShowBalanceModal(true)}>Manage Unused Leaves</button>
+              </div>
+              
+              <div style={{display: "flex", gap: "20px", flexWrap: "wrap"}}>
+                {balances.map(b => (
+                  <div key={b.leave_type_id} style={{padding: "15px", border: "1px solid #cbd5e1", borderRadius: "8px", width: "200px"}}>
+                    <div style={{fontSize: "14px", color: "#64748b", fontWeight: "600", textTransform: "uppercase"}}>{b.leave_type_name}</div>
+                    <div style={{fontSize: "24px", fontWeight: "bold", color: "#0f172a", marginTop: "10px"}}>{b.balance} <span style={{fontSize: "14px", color: "#64748b", fontWeight: "normal"}}>days left</span></div>
+                    <div style={{fontSize: "12px", color: "#94a3b8", marginTop: "5px"}}>Quota: {b.annual_quota} | Taken: {b.days_taken}</div>
+                  </div>
+                ))}
+                {balances.length === 0 && <p style={{color: "#64748b"}}>No leave balances found.</p>}
+              </div>
+            </div>
+
           </div>
+
+          {/* Manage Unused Leaves Modal */}
+          {showBalanceModal && (
+            <div style={styles.modalOverlay}>
+              <div style={styles.modalContent}>
+                <h3 style={{marginTop: 0, color: "var(--text-main)"}}>Manage Unused Leaves</h3>
+                <form onSubmit={handleBalanceAction}>
+                  <div style={{marginBottom: "15px"}}>
+                    <label style={styles.label}>Leave Type</label>
+                    <select value={balanceForm.leave_type_id} onChange={(e) => setBalanceForm({...balanceForm, leave_type_id: e.target.value})} style={styles.input} required>
+                      <option value="">Select Leave Type...</option>
+                      {balances.filter(b => b.balance > 0).map(b => (
+                        <option key={b.leave_type_id} value={b.leave_type_id}>{b.leave_type_name} ({b.balance} days available)</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <div style={{marginBottom: "15px"}}>
+                    <label style={styles.label}>Action</label>
+                    <select value={balanceForm.action_type} onChange={(e) => setBalanceForm({...balanceForm, action_type: e.target.value})} style={styles.input} required>
+                      <option value="CARRY_FORWARD">Carry Forward to Next Year</option>
+                      <option value="REDEEM">Redeem (Encashment)</option>
+                    </select>
+                  </div>
+
+                  <div style={{marginBottom: "20px"}}>
+                    <label style={styles.label}>Days to Process</label>
+                    <input type="number" step="0.5" max={balances.find(b => b.leave_type_id === parseInt(balanceForm.leave_type_id))?.balance || 0} min="0.5" value={balanceForm.days} onChange={(e) => setBalanceForm({...balanceForm, days: e.target.value})} style={styles.input} required />
+                  </div>
+
+                  <div style={{display: "flex", justifyContent: "flex-end", gap: "10px"}}>
+                    <button type="button" onClick={() => setShowBalanceModal(false)} style={styles.cancelBtn}>Cancel</button>
+                    <button type="submit" style={styles.saveBtn}>Submit Request</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
         </div>
       </div>
     </div>
@@ -97,7 +191,10 @@ const styles = {
   saveBtn: { backgroundColor: "#0284c7", color: "#fff", border: "none", padding: "10px 20px", borderRadius: "6px", cursor: "pointer", fontWeight: "600" },
   cancelBtn: { backgroundColor: "#fff", color: "#475569", border: "1px solid #cbd5e1", padding: "10px 20px", borderRadius: "6px", cursor: "pointer", fontWeight: "600" },
   successMsg: { padding: "10px", backgroundColor: "#dcfce7", color: "#166534", borderRadius: "6px", fontSize: "13px" },
-  errorMsg: { padding: "10px", backgroundColor: "#fee2e2", color: "#991b1b", borderRadius: "6px", fontSize: "13px" }
+  errorMsg: { padding: "10px", backgroundColor: "#fee2e2", color: "#991b1b", borderRadius: "6px", fontSize: "13px" },
+  label: { fontSize: "14px", fontWeight: "600", color: "#475569", marginBottom: "6px", display: "block" },
+  modalOverlay: { position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", backgroundColor: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000 },
+  modalContent: { backgroundColor: "white", padding: "30px", borderRadius: "12px", width: "450px", boxShadow: "0 10px 25px rgba(0,0,0,0.15)" }
 };
 
 export default Profile;

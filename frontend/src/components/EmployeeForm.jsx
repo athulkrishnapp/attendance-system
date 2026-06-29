@@ -1,8 +1,35 @@
-const EmployeeForm = ({ formData, handleInputChange, handleSubmit, handleCancel, statusMsg }) => {
+import { useState, useEffect } from "react";
+import { api } from "../services/api";
+
+const EmployeeForm = ({ formData, handleInputChange, handleSubmit, handleCancel, statusMsg, isEditing }) => {
+  const [departments, setDepartments] = useState([]);
+  const [levels, setLevels] = useState([]);
+  const [shifts, setShifts] = useState([]);
+  const [managers, setManagers] = useState([]);
+
+  useEffect(() => {
+    const fetchDropdowns = async () => {
+      try {
+        const [deptRes, levelRes, shiftRes, empRes] = await Promise.all([
+          api.departments.getAll(),
+          api.levels.getAll(),
+          api.shifts.getAll(),
+          api.employees.getAll()
+        ]);
+        setDepartments(deptRes.data);
+        setLevels(levelRes.data);
+        setShifts(shiftRes.data);
+        setManagers(empRes.data);
+      } catch (err) {
+        console.error("Failed to load dropdown data for employee form", err);
+      }
+    };
+    fetchDropdowns();
+  }, []);
   return (
     <div style={styles.formCard}>
       <div style={styles.headerRow}>
-        <h3 style={{ margin: 0 }}>Register New Staff</h3>
+        <h3 style={{ margin: 0 }}>{isEditing ? "Edit Employee" : "Register New Staff"}</h3>
         <button type="button" onClick={handleCancel} style={styles.cancelBtn}>✕</button>
       </div>
       
@@ -16,12 +43,36 @@ const EmployeeForm = ({ formData, handleInputChange, handleSubmit, handleCancel,
         <input type="text" name="employee_code" placeholder="Employee Code (e.g. EMP002)" value={formData.employee_code} onChange={handleInputChange} required style={styles.input} />
         <input type="text" name="name" placeholder="Full Name" value={formData.name} onChange={handleInputChange} required style={styles.input} />
         <input type="email" name="email" placeholder="Email Address" value={formData.email} onChange={handleInputChange} required style={styles.input} />
-        <input type="password" name="password" placeholder="Temporary Password" value={formData.password} onChange={handleInputChange} required style={styles.input} />
-        <select name="role_id" value={formData.role_id} onChange={handleInputChange} style={styles.input}>
+        {!isEditing && (
+          <input type="password" name="password" placeholder="Temporary Password" value={formData.password || ''} onChange={handleInputChange} required style={styles.input} />
+        )}
+        <select name="department_id" value={formData.department_id || ''} onChange={handleInputChange} style={styles.input} required>
+          <option value="">-- Select Department --</option>
+          {departments.map(d => <option key={d.id} value={d.id}>{d.department_name}</option>)}
+        </select>
+        
+        <select name="level_id" value={formData.level_id || ''} onChange={handleInputChange} style={styles.input} required>
+          <option value="">-- Select Level --</option>
+          {levels.map(l => <option key={l.id} value={l.id}>{l.level_name}</option>)}
+        </select>
+        
+        <select name="shift_id" value={formData.shift_id || ''} onChange={handleInputChange} style={styles.input} required>
+          <option value="">-- Select Shift --</option>
+          {shifts.map(s => <option key={s.id} value={s.id}>{s.shift_name}</option>)}
+        </select>
+        
+        <select name="manager_id" value={formData.manager_id || ''} onChange={handleInputChange} style={styles.input}>
+          <option value="">-- Select Manager (Optional) --</option>
+          {managers
+            .filter(m => !isEditing || m.employee_code !== formData.employee_code)
+            .map(m => <option key={m.id} value={m.id}>{m.name} ({m.employee_code})</option>)}
+        </select>
+        
+        <select name="role_id" value={formData.role_id || 2} onChange={handleInputChange} style={styles.input} required>
           <option value={2}>Standard Employee</option>
           <option value={1}>Administrator</option>
         </select>
-        <button type="submit" style={styles.submitBtn}>Save Employee</button>
+        <button type="submit" style={styles.submitBtn}>{isEditing ? "Save Changes" : "Save Employee"}</button>
       </form>
     </div>
   );

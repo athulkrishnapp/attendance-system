@@ -6,6 +6,11 @@ import EmployeeForm from "../components/EmployeeForm";
 
 const EmployeeManagement = () => {
   const [employees, setEmployees] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [shifts, setShifts] = useState([]);
+  const [filterDepartment, setFilterDepartment] = useState("");
+  const [filterShift, setFilterShift] = useState("");
+  
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingEmp, setEditingEmp] = useState(null);
@@ -17,9 +22,27 @@ const EmployeeManagement = () => {
     email: "",
     password: "",
     role_id: 2,
+    department_id: "",
+    level_id: "",
+    shift_id: "",
+    manager_id: "",
   });
 
-  useEffect(() => { fetchEmployees(); }, []);
+  useEffect(() => { 
+    fetchEmployees(); 
+    fetchSettings();
+  }, []);
+
+  const fetchSettings = async () => {
+    try {
+      const [depRes, shiftRes] = await Promise.all([
+        API.get("/settings/departments"),
+        API.get("/settings/shifts")
+      ]);
+      setDepartments(depRes.data);
+      setShifts(shiftRes.data);
+    } catch (err) { console.error(err); }
+  };
 
   const fetchEmployees = async () => {
     try {
@@ -40,6 +63,10 @@ const EmployeeManagement = () => {
       name: emp.name,
       email: emp.email,
       role_id: emp.role_id,
+      department_id: emp.department_id || "",
+      level_id: emp.level_id || "",
+      shift_id: emp.shift_id || "",
+      manager_id: emp.manager_id || "",
     });
     setShowForm(true);
   };
@@ -65,10 +92,16 @@ const EmployeeManagement = () => {
       }
       setShowForm(false);
       setEditingEmp(null);
-      setFormData({ employee_code: "", name: "", email: "", password: "", role_id: 2 });
+      setFormData({ employee_code: "", name: "", email: "", password: "", role_id: 2, department_id: "", level_id: "", shift_id: "", manager_id: "" });
       fetchEmployees();
     } catch (err) { setStatusMsg({ text: "Operation failed", type: "error" }); }
   };
+
+  const filteredEmployees = employees.filter(emp => {
+    const matchDep = filterDepartment ? emp.department_id === parseInt(filterDepartment) : true;
+    const matchShift = filterShift ? emp.shift_id === parseInt(filterShift) : true;
+    return matchDep && matchShift;
+  });
 
   return (
     <div style={styles.layout}>
@@ -84,8 +117,25 @@ const EmployeeManagement = () => {
           </header>
 
           {showForm && (
-            <EmployeeForm formData={formData} handleInputChange={handleInputChange} handleSubmit={handleSave} handleCancel={() => setShowForm(false)} statusMsg={statusMsg} />
+            <EmployeeForm formData={formData} handleInputChange={handleInputChange} handleSubmit={handleSave} handleCancel={() => setShowForm(false)} statusMsg={statusMsg} isEditing={!!editingEmp} />
           )}
+
+          <div style={{ display: 'flex', gap: '20px', marginBottom: '20px', backgroundColor: 'white', padding: '15px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+              <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#64748b', textTransform: 'uppercase' }}>Filter Department</label>
+              <select value={filterDepartment} onChange={e => setFilterDepartment(e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', minWidth: '200px' }}>
+                <option value="">All Departments</option>
+                {departments.map(d => <option key={d.id} value={d.id}>{d.department_name}</option>)}
+              </select>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+              <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#64748b', textTransform: 'uppercase' }}>Filter Shift</label>
+              <select value={filterShift} onChange={e => setFilterShift(e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', minWidth: '200px' }}>
+                <option value="">All Shifts</option>
+                {shifts.map(s => <option key={s.id} value={s.id}>{s.shift_name}</option>)}
+              </select>
+            </div>
+          </div>
 
           <div style={styles.tableContainer}>
             {loading ? <p style={{ padding: "20px" }}>Loading staff data...</p> : (
@@ -94,17 +144,22 @@ const EmployeeManagement = () => {
                   <tr>
                     <th style={styles.th}>Code</th>
                     <th style={styles.th}>Name</th>
-                    <th style={styles.th}>Email</th>
+                    <th style={styles.th}>Department</th>
+                    <th style={styles.th}>Shift</th>
                     <th style={styles.th}>Role</th>
                     <th style={styles.th}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {employees.map((emp) => (
+                  {filteredEmployees.map((emp) => (
                     <tr key={emp.id} style={styles.tr}>
                       <td style={styles.td}><strong>{emp.employee_code}</strong></td>
-                      <td style={styles.td}>{emp.name}</td>
-                      <td style={styles.td}>{emp.email}</td>
+                      <td style={styles.td}>
+                        {emp.name}<br/>
+                        <span style={{fontSize:'12px', color:'#64748b'}}>{emp.email}</span>
+                      </td>
+                      <td style={styles.td}>{departments.find(d => d.id === emp.department_id)?.department_name || "-"}</td>
+                      <td style={styles.td}>{shifts.find(s => s.id === emp.shift_id)?.shift_name || "-"}</td>
                       <td style={styles.td}>
                         <span style={emp.role_id === 1 ? styles.badgeAdmin : styles.badgeUser}>
                           {emp.role_id === 1 ? "Admin" : "Employee"}

@@ -7,8 +7,9 @@ import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound";
 import Settings from "./pages/Settings";
 import LeaveApprovals from "./pages/LeaveApprovals"; 
-import SwipeReports from "./pages/SwipeReports"; // NEW
-import RequestLeave from "./pages/RequestLeave"; // NEW
+import RegularizationApprovals from "./pages/RegularizationApprovals";
+import SwipeReports from "./pages/SwipeReports"; 
+import RequestLeave from "./pages/RequestLeave"; 
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
         <Route path="/employees" element={<EmployeeManagement />} />
         <Route path="/attendance" element={<AttendanceReport />} />
         <Route path="/approvals" element={<LeaveApprovals />} /> 
+        <Route path="/regularizations" element={<RegularizationApprovals />} />
         <Route path="/settings" element={<Settings />} />
         
         {/* New Employee Routes */}

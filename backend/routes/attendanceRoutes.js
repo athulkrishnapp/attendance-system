@@ -8,7 +8,12 @@ const upload = multer({ dest: "uploads/attendance_excel_files/" });
 
 // The route expects a file input named "file"
 router.post("/upload", upload.single("file"), attendanceController.uploadAttendance);
-router.put("/regularize", attendanceController.requestRegularization);
+
+// Regularization Workflow
+router.post("/regularize", attendanceController.requestRegularization);
+router.get("/regularize/pending", attendanceController.getPendingRegularizations);
+router.put("/regularize/:id/process", attendanceController.processRegularization);
+router.put("/regularize/:id/forward", attendanceController.forwardRegularization);
 router.get('/calendar/:month', attendanceController.getCalendarStatus);
 router.get('/date/:date', attendanceController.getAttendanceByDate);
 router.put('/record/:id', attendanceController.updateAttendanceRecord);
