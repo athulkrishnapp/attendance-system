@@ -20,13 +20,12 @@ const AttendanceReport = () => {
   const [filterStatus, setFilterStatus] = useState("");
   const [filterDepartment, setFilterDepartment] = useState("");
 
+  const [selectedEmployeeForDetails, setSelectedEmployeeForDetails] = useState(null);
+
   useEffect(() => {
-    if (activeTab === "daily") {
-      fetchReports();
-    } else {
-      fetchMasterReports();
-    }
-  }, [activeTab, filterMonth]);
+    fetchReports();
+    fetchMasterReports();
+  }, [filterMonth]);
 
   const fetchReports = async () => {
     try {
@@ -74,9 +73,10 @@ const AttendanceReport = () => {
            item.name?.toLowerCase().includes(search))
         : true;
 
-      // 2. Case-insensitive matching for status
+      // 2. Case-insensitive matching for status (core + modifiers)
       const matchesStatus = filterStatus 
-        ? item.core_status?.toUpperCase() === filterStatus.toUpperCase() 
+        ? (item.core_status?.toUpperCase() === filterStatus.toUpperCase() || 
+           (Array.isArray(item.modifier_flags) && item.modifier_flags.includes(filterStatus.toUpperCase())))
         : true;
 
       return matchesMonth && matchesDay && matchesEmployee && matchesStatus;
@@ -98,10 +98,14 @@ const AttendanceReport = () => {
 
   const filteredMasterReports = useMemo(() => {
     return masterReports.filter(r => {
-      if (filterDepartment && r.department_name !== filterDepartment) return false;
-      return true;
+      const matchDep = filterDepartment ? r.department_name === filterDepartment : true;
+      const search = filterEmployee.toLowerCase();
+      const matchEmp = filterEmployee 
+        ? (r.employee_code?.toLowerCase().includes(search) || r.name?.toLowerCase().includes(search))
+        : true;
+      return matchDep && matchEmp;
     });
-  }, [masterReports, filterDepartment]);
+  }, [masterReports, filterDepartment, filterEmployee]);
 
   return (
     <div style={styles.layout}>
@@ -123,31 +127,35 @@ const AttendanceReport = () => {
               <input type="month" value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)} style={styles.input} />
             </div>
 
-            <div style={styles.filterGroup}>
-              <label style={styles.label}>Day</label>
-              <input type="number" min="1" max="31" placeholder="DD" value={filterDay} onChange={(e) => setFilterDay(e.target.value)} style={styles.input} />
-            </div>
+            {activeTab === "daily" && (
+              <>
+                <div style={styles.filterGroup}>
+                  <label style={styles.label}>Day</label>
+                  <input type="number" min="1" max="31" placeholder="DD" value={filterDay} onChange={(e) => setFilterDay(e.target.value)} style={styles.input} />
+                </div>
 
-            <div style={styles.filterGroup}>
-              <label style={styles.label}>Employee</label>
-              <input type="text" placeholder="Search..." value={filterEmployee} onChange={(e) => setFilterEmployee(e.target.value)} style={styles.input} />
-            </div>
+                <div style={styles.filterGroup}>
+                  <label style={styles.label}>Employee</label>
+                  <input type="text" placeholder="Search..." value={filterEmployee} onChange={(e) => setFilterEmployee(e.target.value)} style={styles.input} />
+                </div>
 
-            <div style={styles.filterGroup}>
-              <label style={styles.label}>Status</label>
-              <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} style={styles.input}>
-                <option value="">All Status</option>
-                <option value="PRESENT">Present</option>
-                <option value="LATE">Late</option>
-                <option value="ABSENT">Absent</option>
-                <option value="HALF_DAY">Half Day</option>
-                <option value="SHORT_LEAVE">Short Leave</option>
-                <option value="MISSING_PUNCH">Missing Punch</option>
-                <option value="OVERTIME">Overtime</option>
-                <option value="WEEKEND_WORK">Weekend Work</option>
-                <option value="HOLIDAY_WORK">Holiday Work</option>
-              </select>
-            </div>
+                <div style={styles.filterGroup}>
+                  <label style={styles.label}>Status</label>
+                  <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} style={styles.input}>
+                    <option value="">All Status</option>
+                    <option value="PRESENT">Present</option>
+                    <option value="LATE">Late</option>
+                    <option value="ABSENT">Absent</option>
+                    <option value="HALF_DAY">Half Day</option>
+                    <option value="SHORT_LEAVE">Short Leave</option>
+                    <option value="MISSING_PUNCH">Missing Punch</option>
+                    <option value="OVERTIME">Overtime</option>
+                    <option value="WEEKEND_WORK">Weekend Work</option>
+                    <option value="HOLIDAY_WORK">Holiday Work</option>
+                  </select>
+                </div>
+              </>
+            )}
 
             <button style={styles.clearBtn} onClick={clearFilters}>Clear</button>
           </div>
@@ -162,13 +170,19 @@ const AttendanceReport = () => {
           ) : (
             <div style={{ backgroundColor: "white", padding: "20px", borderRadius: "12px", boxShadow: "0 1px 3px 0 rgba(0, 0, 0, 0.1)", border: "1px solid #e2e8f0" }}>
               <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', alignItems: 'center' }}>
-                <label style={styles.label}>Filter Department:</label>
-                <select value={filterDepartment} onChange={(e) => setFilterDepartment(e.target.value)} style={{...styles.input, width: '200px'}}>
-                  <option value="">All Departments</option>
-                  {uniqueMasterDepartments.map(d => (
-                    <option key={d} value={d}>{d}</option>
-                  ))}
-                </select>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                  <label style={styles.label}>Filter Department</label>
+                  <select value={filterDepartment} onChange={(e) => setFilterDepartment(e.target.value)} style={{...styles.input, width: '200px'}}>
+                    <option value="">All Departments</option>
+                    {uniqueMasterDepartments.map(d => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                  <label style={styles.label}>Search Employee</label>
+                  <input type="text" placeholder="Search Name/Code..." value={filterEmployee} onChange={(e) => setFilterEmployee(e.target.value)} style={{...styles.input, width: '200px'}} />
+                </div>
               </div>
 
               {loading ? (
@@ -183,27 +197,25 @@ const AttendanceReport = () => {
                       <th style={styles.th}>Present</th>
                       <th style={styles.th}>Absent</th>
                       <th style={styles.th}>Total Leaves</th>
-                      {leaveTypes.map(lt => (
-                        <th key={lt.id} style={styles.th}>{lt.name}</th>
-                      ))}
                       <th style={styles.th}>Missing Punches</th>
                       <th style={styles.th}>Total Hrs</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredMasterReports.map(r => (
-                      <tr key={r.employee_id} style={{ borderBottom: "1px solid #e2e8f0" }}>
+                      <tr 
+                        key={r.employee_id} 
+                        style={{ borderBottom: "1px solid #e2e8f0", cursor: "pointer", transition: "background-color 0.2s" }}
+                        onClick={() => setSelectedEmployeeForDetails(r)}
+                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f1f5f9'}
+                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                      >
                         <td style={{ padding: "12px 20px" }}>{r.employee_code}</td>
                         <td style={{ padding: "12px 20px" }}><strong>{r.name}</strong></td>
                         <td style={{ padding: "12px 20px" }}>{r.department_name || "-"}</td>
                         <td style={{ padding: "12px 20px", color: "#166534" }}>{r.total_present}</td>
                         <td style={{ padding: "12px 20px", color: "#991b1b" }}>{r.total_absent}</td>
                         <td style={{ padding: "12px 20px", color: "#d97706", fontWeight: "bold" }}>{r.total_leaves}</td>
-                        {leaveTypes.map(lt => (
-                          <td key={lt.id} style={{ padding: "12px 20px", color: "#475569" }}>
-                            {r.leaves && r.leaves[lt.name] ? r.leaves[lt.name] : "-"}
-                          </td>
-                        ))}
                         <td style={{ padding: "12px 20px", color: "#dc2626" }}>{r.missing_punches}</td>
                         <td style={{ padding: "12px 20px" }}>{r.total_working_hours}</td>
                       </tr>
@@ -214,6 +226,41 @@ const AttendanceReport = () => {
                   </tbody>
                 </table>
               )}
+            </div>
+          )}
+
+          {selectedEmployeeForDetails && (
+            <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+              <div style={{ backgroundColor: 'white', padding: '30px', borderRadius: '12px', width: '90%', maxWidth: '1000px', maxHeight: '90vh', overflowY: 'auto' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                  <h3 style={{ fontSize: '20px', fontWeight: 'bold' }}>Monthly Attendance Details: {selectedEmployeeForDetails.name}</h3>
+                  <button onClick={() => setSelectedEmployeeForDetails(null)} style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer', color: '#64748b' }}>&times;</button>
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '20px', backgroundColor: '#f8fafc', padding: '15px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <span style={{ fontWeight: 'bold', color: '#334155', fontSize: '14px' }}>Leaves Taken ({selectedEmployeeForDetails.total_leaves}):</span>
+                  {selectedEmployeeForDetails.leaves && Object.entries(selectedEmployeeForDetails.leaves).length > 0 ? (
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                      {Object.entries(selectedEmployeeForDetails.leaves).map(([type, count]) => (
+                        <span key={type} style={{ backgroundColor: '#e0e7ff', color: '#4338ca', padding: '4px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '600' }}>
+                          {type}: {count}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span style={{ fontSize: '14px', color: '#64748b' }}>None</span>
+                  )}
+                </div>
+                
+                <AttendanceTable 
+                  reports={reports.filter(r => 
+                    r.employee_id === selectedEmployeeForDetails.employee_id && 
+                    r.attendance_date && 
+                    r.attendance_date.startsWith(filterMonth)
+                  )} 
+                  loading={loading} 
+                />
+              </div>
             </div>
           )}
         </div>

@@ -16,7 +16,7 @@ const Settings = () => {
 
   // Enterprise Entities State
   const [shifts, setShifts] = useState([]);
-  const [newShift, setNewShift] = useState({ shift_name: "", shift_start_time: "", shift_end_time: "", grace_period_minutes: 15, required_working_hours: 8, is_active: true });
+  const [newShift, setNewShift] = useState({ shift_name: "", shift_start_time: "", shift_end_time: "", half_day_mark_time: "", grace_period_minutes: 15, required_working_hours: 8, is_active: true });
   const [editingShiftId, setEditingShiftId] = useState(null);
 
   const [departments, setDepartments] = useState([]);
@@ -176,7 +176,7 @@ const Settings = () => {
         await api.shifts.create(newShift);
         showMessage("Shift added.", "success");
       }
-      setNewShift({ shift_name: "", shift_start_time: "", shift_end_time: "", grace_period_minutes: 15, required_working_hours: 8, is_active: true });
+      setNewShift({ shift_name: "", shift_start_time: "", shift_end_time: "", half_day_mark_time: "", grace_period_minutes: 15, required_working_hours: 8, is_active: true });
       setEditingShiftId(null);
       fetchData();
     } catch (err) { showMessage("Failed to save shift.", "error"); }
@@ -441,6 +441,11 @@ const Settings = () => {
                     </div>
 
                     <div style={styles.formGroup}>
+                      <label style={styles.formLabel}>Half Day Threshold</label>
+                      <input type="time" value={newShift.half_day_mark_time || ""} onChange={(e) => setNewShift({...newShift, half_day_mark_time: e.target.value})} style={styles.formInput} required />
+                    </div>
+
+                    <div style={styles.formGroup}>
                       <label style={styles.formLabel}>Grace Period (Minutes)</label>
                       <input type="number" min="0" placeholder="15" value={newShift.grace_period_minutes} onChange={(e) => setNewShift({...newShift, grace_period_minutes: e.target.value})} style={styles.formInput} required />
                     </div>
@@ -461,13 +466,14 @@ const Settings = () => {
                   {shifts.length > 0 && (
                     <table style={{...styles.table, marginTop: '20px'}}>
                       <thead>
-                        <tr><th style={styles.th}>Shift Name</th><th style={styles.th}>Schedule</th><th style={styles.th}>Grace</th><th style={styles.th}>Hours</th><th style={styles.th}>Actions</th></tr>
+                        <tr><th style={styles.th}>Shift Name</th><th style={styles.th}>Schedule</th><th style={styles.th}>Half Day At</th><th style={styles.th}>Grace</th><th style={styles.th}>Hours</th><th style={styles.th}>Actions</th></tr>
                       </thead>
                       <tbody>
                         {shifts.map(s => (
                           <tr key={s.id} style={styles.tr}>
                             <td style={styles.td}><strong>{s.shift_name}</strong></td>
                             <td style={styles.td}>{s.shift_start_time} - {s.shift_end_time}</td>
+                            <td style={styles.td}>{s.half_day_mark_time || '-'}</td>
                             <td style={styles.td}>{s.grace_period_minutes} mins</td>
                             <td style={styles.td}>{s.required_working_hours} hrs</td>
                             <td style={styles.td}>

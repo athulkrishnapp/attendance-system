@@ -108,15 +108,15 @@ exports.getShifts = async (req, res) => {
 
 exports.addShift = async (req, res) => {
   try {
-    const { shift_name, shift_start_time, shift_end_time, grace_period_minutes, required_working_hours, is_active } = req.body;
+    const { shift_name, shift_start_time, shift_end_time, half_day_mark_time, grace_period_minutes, required_working_hours, is_active } = req.body;
     if (!shift_name || !shift_start_time || !shift_end_time) {
       return res.status(400).json({ error: "shift_name, shift_start_time, and shift_end_time are required" });
     }
     const result = await pool.query(
-      `INSERT INTO shifts (shift_name, shift_start_time, shift_end_time, grace_period_minutes, required_working_hours, is_active)
-       VALUES ($1, $2, $3, COALESCE($4, 15), COALESCE($5, 8.0), COALESCE($6, true))
+      `INSERT INTO shifts (shift_name, shift_start_time, shift_end_time, half_day_mark_time, grace_period_minutes, required_working_hours, is_active)
+       VALUES ($1, $2, $3, COALESCE($4, '13:00:00'), COALESCE($5, 15), COALESCE($6, 8.0), COALESCE($7, true))
        RETURNING *`,
-      [shift_name, shift_start_time, shift_end_time, grace_period_minutes, required_working_hours, is_active]
+      [shift_name, shift_start_time, shift_end_time, half_day_mark_time, grace_period_minutes, required_working_hours, is_active]
     );
     res.json(result.rows[0]);
   } catch (err) {
@@ -127,16 +127,16 @@ exports.addShift = async (req, res) => {
 exports.updateShift = async (req, res) => {
   try {
     const { id } = req.params;
-    const { shift_name, shift_start_time, shift_end_time, grace_period_minutes, required_working_hours, is_active } = req.body;
+    const { shift_name, shift_start_time, shift_end_time, half_day_mark_time, grace_period_minutes, required_working_hours, is_active } = req.body;
     if (!shift_name || !shift_start_time || !shift_end_time) {
       return res.status(400).json({ error: "shift_name, shift_start_time, and shift_end_time are required" });
     }
     const result = await pool.query(
       `UPDATE shifts
-       SET shift_name = $1, shift_start_time = $2, shift_end_time = $3, grace_period_minutes = $4, required_working_hours = $5, is_active = $6
-       WHERE id = $7
+       SET shift_name = $1, shift_start_time = $2, shift_end_time = $3, half_day_mark_time = $4, grace_period_minutes = $5, required_working_hours = $6, is_active = $7
+       WHERE id = $8
        RETURNING *`,
-      [shift_name, shift_start_time, shift_end_time, grace_period_minutes, required_working_hours, is_active, id]
+      [shift_name, shift_start_time, shift_end_time, half_day_mark_time, grace_period_minutes, required_working_hours, is_active, id]
     );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Shift not found" });

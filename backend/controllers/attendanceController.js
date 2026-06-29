@@ -9,11 +9,11 @@ exports.uploadAttendance = async (req, res) => {
 
     // 1. Fetch Company Settings & Holidays from Database
     const settingsRes = await pool.query("SELECT * FROM company_settings LIMIT 1");
-    const settings = settingsRes.rows[0] || { 
-      shift_start_time: '09:00:00', 
+    const settings = settingsRes.rows[0] || {
+      shift_start_time: '09:00:00',
       shift_end_time: '18:00:00', // Default fallback
-      grace_period_minutes: 15, 
-      required_working_hours: 8 
+      grace_period_minutes: 15,
+      required_working_hours: 8
     };
 
     const holidaysRes = await pool.query("SELECT holiday_date, description FROM company_holidays");
@@ -24,7 +24,7 @@ exports.uploadAttendance = async (req, res) => {
     });
 
     const employeesRes = await pool.query(`
-      SELECT e.id, e.employee_code, s.shift_start_time, s.shift_end_time, s.grace_period_minutes, s.required_working_hours
+      SELECT e.id, e.employee_code, s.shift_start_time, s.shift_end_time, s.grace_period_minutes, s.required_working_hours, s.half_day_mark_time
       FROM employees e
       LEFT JOIN shifts s ON e.shift_id = s.id
     `);
@@ -35,7 +35,8 @@ exports.uploadAttendance = async (req, res) => {
         shift_start_time: emp.shift_start_time,
         shift_end_time: emp.shift_end_time,
         grace_period_minutes: emp.grace_period_minutes,
-        required_working_hours: emp.required_working_hours
+        required_working_hours: emp.required_working_hours,
+        half_day_mark_time: emp.half_day_mark_time
       };
     });
 
@@ -54,8 +55,8 @@ exports.uploadAttendance = async (req, res) => {
 
     for (const row of data) {
       const empInfo = empMap[row.employee_code];
-      if (!empInfo) continue; 
-      const actualEmployeeId = empInfo.id; 
+      if (!empInfo) continue;
+      const actualEmployeeId = empInfo.id;
 
       // Robust parsing: Enforce Local Timezone interpretation to prevent UTC shift
       let scanDateObj;
@@ -69,7 +70,7 @@ exports.uploadAttendance = async (req, res) => {
         // Try strict manual parsing first to prevent timezone shifts
         const cleanedStr = row.scan_time.trim().replace(/\//g, '-');
         const [datePart, timePart] = cleanedStr.split(' ');
-        
+
         if (datePart && timePart) {
           const [year, month, day] = datePart.split('-');
           const [hour, minute, second] = timePart.split(':');
@@ -82,14 +83,25 @@ exports.uploadAttendance = async (req, res) => {
       }
 
       if (isNaN(scanDateObj.getTime())) {
-          continue; // Prevent Invalid Dates from entering the array and destroying the sort function
+        continue; // Prevent Invalid Dates from entering the array and destroying the sort function
       }
+
+      const shiftStartTimeStr = empInfo.shift_start_time || settings.shift_start_time || '09:00:00';
+      const [shiftHr, shiftMin] = shiftStartTimeStr.split(':').map(Number);
       
-      const yearStr = scanDateObj.getFullYear();
-      const monthStr = String(scanDateObj.getMonth() + 1).padStart(2, '0');
-      const dayStr = String(scanDateObj.getDate()).padStart(2, '0');
-      const dateKey = `${yearStr}-${monthStr}-${dayStr}`; 
-      
+      let logicalDateObj = new Date(scanDateObj);
+      const boundaryTime = new Date(scanDateObj.getFullYear(), scanDateObj.getMonth(), scanDateObj.getDate(), shiftHr, shiftMin, 0);
+      boundaryTime.setHours(boundaryTime.getHours() - 4);
+
+      if (scanDateObj < boundaryTime) {
+        logicalDateObj.setDate(logicalDateObj.getDate() - 1);
+      }
+
+      const yearStr = logicalDateObj.getFullYear();
+      const monthStr = String(logicalDateObj.getMonth() + 1).padStart(2, '0');
+      const dayStr = String(logicalDateObj.getDate()).padStart(2, '0');
+      const dateKey = `${yearStr}-${monthStr}-${dayStr}`;
+
       await pool.query(
         "INSERT INTO attendance_logs (employee_id, scan_time, source, device_id) VALUES ($1, $2, $3, $4)",
         [actualEmployeeId, scanDateObj, 'EXCEL', 'MAIN_GATE']
@@ -108,14 +120,14 @@ exports.uploadAttendance = async (req, res) => {
 
     for (const key in dailySummaries) {
       const record = dailySummaries[key];
-      record.scans.sort((a, b) => a - b); 
+      record.scans.sort((a, b) => a - b);
 
       const firstIn = record.scans[0];
       const lastOut = record.scans[record.scans.length - 1];
       const workingHours = parseFloat(((lastOut - firstIn) / (1000 * 60 * 60)).toFixed(2));
-      
+
       const holidayName = holidayMap[record.attendance_date];
-      const dayOfWeek = firstIn.getDay(); 
+      const dayOfWeek = firstIn.getDay();
       const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
 
       // Fetch employee shift or use defaults
@@ -133,23 +145,48 @@ exports.uploadAttendance = async (req, res) => {
 
       // Apply Overrides
       if (isWeekend) {
-          core_status = 'WEEKEND';
-          if (workingHours > 0) modifier_flags.push('WEEKEND_WORK');
+        core_status = 'WEEKEND';
+        if (workingHours > 0) modifier_flags.push('WEEKEND_WORK');
       } else if (holidayName) {
-          core_status = 'HOLIDAY';
-          if (workingHours > 0) modifier_flags.push('HOLIDAY_WORK');
+        core_status = 'HOLIDAY';
+        if (workingHours > 0) modifier_flags.push('HOLIDAY_WORK');
       }
 
       if (core_status === 'PRESENT') {
-          // Time comparisons using purely time strings
-          const firstInTimeString = String(firstIn.getHours()).padStart(2, '0') + ':' + String(firstIn.getMinutes()).padStart(2, '0') + ':' + String(firstIn.getSeconds()).padStart(2, '0');
-          const expectedStartDate = new Date(`1970-01-01T${shiftStartTime}Z`);
-          const actualFirstInDate = new Date(`1970-01-01T${firstInTimeString}Z`);
-          const maxGraceDate = new Date(expectedStartDate.getTime() + (gracePeriod * 60000));
-          
-          if (actualFirstInDate > maxGraceDate) modifier_flags.push('LATE');
-          if (workingHours > requiredHours + 1) modifier_flags.push('OVERTIME');
-          if (workingHours > 0 && workingHours < requiredHours - 0.5) modifier_flags.push('EARLY_OUT');
+        const [shiftHr, shiftMin] = shiftStartTime.split(':').map(Number);
+        const [logicalYear, logicalMonth, logicalDay] = record.attendance_date.split('-').map(Number);
+        
+        const expectedStartDate = new Date(logicalYear, logicalMonth - 1, logicalDay, shiftHr, shiftMin, 0);
+        const maxGraceDate = new Date(expectedStartDate.getTime() + (gracePeriod * 60000));
+        
+        const halfDayThreshold = empInfo?.half_day_mark_time || '13:00:00';
+        const [halfHr, halfMin] = halfDayThreshold.split(':').map(Number);
+        const halfDayThresholdDate = new Date(logicalYear, logicalMonth - 1, logicalDay, halfHr, halfMin, 0);
+        
+        if (halfDayThresholdDate < expectedStartDate) {
+            halfDayThresholdDate.setDate(halfDayThresholdDate.getDate() + 1);
+        }
+
+        const halfRequiredHours = requiredHours / 2;
+        
+        if (workingHours < halfRequiredHours) {
+            core_status = 'HALF_DAY';
+            if (firstIn >= halfDayThresholdDate) {
+                modifier_flags.push('HALF_DAY_FN');
+            } else {
+                modifier_flags.push('HALF_DAY_AN');
+            }
+        } else if (firstIn >= halfDayThresholdDate) {
+            core_status = 'HALF_DAY';
+            modifier_flags.push('HALF_DAY_FN');
+        } else if (lastOut <= halfDayThresholdDate) {
+            core_status = 'HALF_DAY';
+            modifier_flags.push('HALF_DAY_AN');
+        } else {
+            if (firstIn > maxGraceDate) modifier_flags.push('LATE');
+            if (workingHours > requiredHours + 1) modifier_flags.push('OVERTIME');
+            if (workingHours > 0 && workingHours < requiredHours - 0.5) modifier_flags.push('EARLY_OUT');
+        }
       }
 
       await pool.query(`
@@ -161,19 +198,19 @@ exports.uploadAttendance = async (req, res) => {
                       working_hours = EXCLUDED.working_hours, core_status = EXCLUDED.core_status, 
                       modifier_flags = EXCLUDED.modifier_flags, remarks = EXCLUDED.remarks
       `, [
-        record.employee_id, 
-        record.attendance_date, 
-        String(firstIn.getHours()).padStart(2, '0') + ':' + String(firstIn.getMinutes()).padStart(2, '0') + ':' + String(firstIn.getSeconds()).padStart(2, '0'), 
-        String(lastOut.getHours()).padStart(2, '0') + ':' + String(lastOut.getMinutes()).padStart(2, '0') + ':' + String(lastOut.getSeconds()).padStart(2, '0'), 
-        workingHours, 
-        core_status, 
-        JSON.stringify(modifier_flags), 
+        record.employee_id,
+        record.attendance_date,
+        String(firstIn.getHours()).padStart(2, '0') + ':' + String(firstIn.getMinutes()).padStart(2, '0') + ':' + String(firstIn.getSeconds()).padStart(2, '0'),
+        String(lastOut.getHours()).padStart(2, '0') + ':' + String(lastOut.getMinutes()).padStart(2, '0') + ':' + String(lastOut.getSeconds()).padStart(2, '0'),
+        workingHours,
+        core_status,
+        JSON.stringify(modifier_flags),
         "Processed"
       ]);
     }
-    res.status(200).json({ 
-        message: "Smart calculation complete!", 
-        recordsProcessed: data.length
+    res.status(200).json({
+      message: "Smart calculation complete!",
+      recordsProcessed: data.length
     });
 
   } catch (err) {
@@ -185,7 +222,7 @@ exports.uploadAttendance = async (req, res) => {
 exports.requestRegularization = async (req, res) => {
   try {
     const { attendance_summary_id, employee_id, requested_first_in, requested_last_out, reason } = req.body;
-    
+
     const empResult = await pool.query("SELECT manager_id FROM employees WHERE id = $1", [employee_id]);
     const managerId = empResult.rows[0]?.manager_id;
     const initialStatus = managerId ? 'PENDING_MANAGER' : 'PENDING_ADMIN';
@@ -230,7 +267,7 @@ exports.getPendingRegularizations = async (req, res) => {
 exports.processRegularization = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, manager_remarks, processed_by, rejection_reason } = req.body; 
+    const { status, manager_remarks, processed_by, rejection_reason } = req.body;
 
     if (status === 'REJECTED' && !rejection_reason) {
       return res.status(400).json({ error: "Rejection reason is required." });
@@ -256,7 +293,7 @@ exports.processRegularization = async (req, res) => {
       const summaryResult = await pool.query("SELECT * FROM attendance_summary WHERE id = $1", [attendance_summary_id]);
       if (summaryResult.rows.length > 0) {
         const summary = summaryResult.rows[0];
-        
+
         let workingHours = summary.working_hours;
         if (requested_first_in && requested_last_out) {
           const firstInDate = new Date(`1970-01-01T${requested_first_in}Z`);
@@ -310,7 +347,7 @@ exports.forwardRegularization = async (req, res) => {
 exports.getCalendarStatus = async (req, res) => {
   try {
     const { month } = req.params; // Expected format: YYYY-MM
-    
+
     // Fetch uploaded attendance dates
     const result = await pool.query(
       `SELECT DISTINCT TO_CHAR(attendance_date, 'YYYY-MM-DD') as date 
@@ -343,7 +380,7 @@ exports.getCalendarStatus = async (req, res) => {
 exports.getAttendanceByDate = async (req, res) => {
   try {
     const { date } = req.params; // Expected format: YYYY-MM-DD
-    
+
     const result = await pool.query(
       `SELECT a.*, e.name, e.employee_code, d.department_name, s.shift_name 
        FROM attendance_summary a 
@@ -354,7 +391,7 @@ exports.getAttendanceByDate = async (req, res) => {
        ORDER BY e.name ASC`,
       [date]
     );
-    
+
     res.json(result.rows);
   } catch (err) {
     console.error("Fetch by date error:", err.message);
@@ -367,14 +404,14 @@ exports.updateAttendanceRecord = async (req, res) => {
   try {
     const { id } = req.params; // The ID of the attendance_summary row
     const { first_in, last_out, working_hours, status, remarks } = req.body;
-    
+
     await pool.query(
       `UPDATE attendance_summary 
        SET first_in = $1, last_out = $2, working_hours = $3, status = $4, remarks = $5
        WHERE id = $6`,
       [first_in, last_out, working_hours, status, remarks, id]
     );
-    
+
     res.json({ message: "Record updated successfully" });
   } catch (err) {
     console.error("Update record error:", err.message);

@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { api } from "../services/api";
 
 const EmployeeForm = ({ formData, handleInputChange, handleSubmit, handleCancel, statusMsg, isEditing }) => {
+  const currentUser = JSON.parse(localStorage.getItem("user")) || {};
+  const isSelf = isEditing && currentUser.id === formData.id;
   const [departments, setDepartments] = useState([]);
   const [levels, setLevels] = useState([]);
   const [shifts, setShifts] = useState([]);
@@ -46,18 +48,25 @@ const EmployeeForm = ({ formData, handleInputChange, handleSubmit, handleCancel,
         {!isEditing && (
           <input type="password" name="password" placeholder="Temporary Password" value={formData.password || ''} onChange={handleInputChange} required style={styles.input} />
         )}
+        <select name="role_id" value={formData.role_id || 2} onChange={handleInputChange} style={styles.input} required disabled={isSelf}>
+          <option value={2}>Standard Employee</option>
+          <option value={1}>Administrator</option>
+        </select>
+
         <select name="department_id" value={formData.department_id || ''} onChange={handleInputChange} style={styles.input} required>
           <option value="">-- Select Department --</option>
           {departments.map(d => <option key={d.id} value={d.id}>{d.department_name}</option>)}
         </select>
         
-        <select name="level_id" value={formData.level_id || ''} onChange={handleInputChange} style={styles.input} required>
-          <option value="">-- Select Level --</option>
-          {levels.map(l => <option key={l.id} value={l.id}>{l.level_name}</option>)}
-        </select>
+        {parseInt(formData.role_id) !== 1 && (
+          <select name="level_id" value={formData.level_id || ''} onChange={handleInputChange} style={styles.input} required>
+            <option value="">-- Select Level --</option>
+            {levels.map(l => <option key={l.id} value={l.id}>{l.level_name}</option>)}
+          </select>
+        )}
         
-        <select name="shift_id" value={formData.shift_id || ''} onChange={handleInputChange} style={styles.input} required>
-          <option value="">-- Select Shift --</option>
+        <select name="shift_id" value={formData.shift_id || ''} onChange={handleInputChange} style={styles.input} required={parseInt(formData.role_id) !== 1}>
+          <option value="">-- Select Shift {parseInt(formData.role_id) === 1 ? '(Optional)' : ''} --</option>
           {shifts.map(s => <option key={s.id} value={s.id}>{s.shift_name}</option>)}
         </select>
         
@@ -66,11 +75,6 @@ const EmployeeForm = ({ formData, handleInputChange, handleSubmit, handleCancel,
           {managers
             .filter(m => !isEditing || m.employee_code !== formData.employee_code)
             .map(m => <option key={m.id} value={m.id}>{m.name} ({m.employee_code})</option>)}
-        </select>
-        
-        <select name="role_id" value={formData.role_id || 2} onChange={handleInputChange} style={styles.input} required>
-          <option value={2}>Standard Employee</option>
-          <option value={1}>Administrator</option>
         </select>
         <button type="submit" style={styles.submitBtn}>{isEditing ? "Save Changes" : "Save Employee"}</button>
       </form>

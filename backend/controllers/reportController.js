@@ -87,7 +87,7 @@ const getMasterReport = async (req, res) => {
       LEFT JOIN attendance_summary a ON e.id = a.employee_id AND TO_CHAR(a.attendance_date, 'YYYY-MM') = $1
       WHERE e.is_active = true
       GROUP BY e.id, e.employee_code, e.name, d.department_name
-      ORDER BY e.name ASC
+      ORDER BY e.employee_code ASC
     `;
 
     const result = await pool.query(query, [monthPrefix]);
