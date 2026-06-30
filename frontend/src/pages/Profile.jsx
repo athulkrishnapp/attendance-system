@@ -135,7 +135,9 @@ const Profile = () => {
                     <div key={b.leave_type_id} style={{padding: "15px", border: "1px solid #cbd5e1", borderRadius: "8px", width: "200px"}}>
                       <div style={{fontSize: "14px", color: "#64748b", fontWeight: "600", textTransform: "uppercase"}}>{b.leave_type_name}</div>
                       <div style={{fontSize: "24px", fontWeight: "bold", color: "#0f172a", marginTop: "10px"}}>{b.balance} <span style={{fontSize: "14px", color: "#64748b", fontWeight: "normal"}}>days left</span></div>
-                      <div style={{fontSize: "12px", color: "#94a3b8", marginTop: "5px"}}>Quota: {b.annual_quota} | Taken: {b.days_taken}</div>
+                      <div style={{fontSize: "12px", color: "#94a3b8", marginTop: "5px"}}>
+                        Quota: {b.annual_quota} | Taken: {b.days_taken} | Pending Approval: {b.days_requested || 0}
+                      </div>
                     </div>
                   ))}
                   {balances.length === 0 && <p style={{color: "#64748b"}}>No leave balances found.</p>}

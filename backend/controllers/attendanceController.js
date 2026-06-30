@@ -149,18 +149,9 @@ exports.uploadAttendance = async (req, res) => {
       const record = dailySummaries[key];
       record.scans.sort((a, b) => a - b);
 
-      const firstIn = record.scans[0];
-      const lastOut = record.scans[record.scans.length - 1];
-      const workingHours = parseFloat(((lastOut - firstIn) / (1000 * 60 * 60)).toFixed(2));
-
-      const holidayName = holidayMap[record.attendance_date];
-      const dayOfWeek = firstIn.getDay();
-      const workingDays = settings.working_days || [1, 2, 3, 4, 5, 6];
-      const isWeekend = !workingDays.includes(dayOfWeek);
-
       // Fetch employee shift or use defaults
       const empInfo = Object.values(empMap).find(e => e.id === record.employee_id);
-      const shiftStartTime = empInfo?.shift_start_time || settings.shift_start_time;
+      const shiftStartTime = empInfo?.shift_start_time || settings.shift_start_time || '09:00:00';
       const gracePeriod = empInfo?.grace_period_minutes !== null && empInfo?.grace_period_minutes !== undefined ? empInfo.grace_period_minutes : settings.grace_period_minutes;
       const requiredHours = empInfo?.required_working_hours !== null && empInfo?.required_working_hours !== undefined ? parseFloat(empInfo.required_working_hours) : parseFloat(settings.required_working_hours);
 
@@ -186,6 +177,31 @@ exports.uploadAttendance = async (req, res) => {
       if (expectedEndDate < expectedStartDate) {
           expectedEndDate.setDate(expectedEndDate.getDate() + 1);
       }
+
+      let firstIn = null;
+      let lastOut = null;
+      
+      if (record.scans.length === 1) {
+          const scan = record.scans[0];
+          const diffToStart = Math.abs(scan - expectedStartDate);
+          const diffToEnd = Math.abs(scan - expectedEndDate);
+          if (diffToStart <= diffToEnd) {
+              firstIn = scan;
+          } else {
+              lastOut = scan;
+          }
+      } else if (record.scans.length > 1) {
+          firstIn = record.scans[0];
+          lastOut = record.scans[record.scans.length - 1];
+      }
+      
+      const workingHours = (firstIn && lastOut) ? parseFloat(((lastOut - firstIn) / (1000 * 60 * 60)).toFixed(2)) : 0;
+
+      const refDate = firstIn || lastOut || expectedStartDate;
+      const holidayName = holidayMap[record.attendance_date];
+      const dayOfWeek = refDate.getDay();
+      const workingDays = settings.working_days || [1, 2, 3, 4, 5, 6];
+      const isWeekend = !workingDays.includes(dayOfWeek);
 
       const mode = settings.calculation_mode || 'WORKING_HOURS';
       const { core_status, modifier_flags } = ruleEngine.calculateAttendance(mode, {
@@ -213,12 +229,12 @@ exports.uploadAttendance = async (req, res) => {
       `, [
         record.employee_id,
         record.attendance_date,
-        String(firstIn.getHours()).padStart(2, '0') + ':' + String(firstIn.getMinutes()).padStart(2, '0') + ':' + String(firstIn.getSeconds()).padStart(2, '0'),
-        String(lastOut.getHours()).padStart(2, '0') + ':' + String(lastOut.getMinutes()).padStart(2, '0') + ':' + String(lastOut.getSeconds()).padStart(2, '0'),
+        firstIn ? (String(firstIn.getHours()).padStart(2, '0') + ':' + String(firstIn.getMinutes()).padStart(2, '0') + ':' + String(firstIn.getSeconds()).padStart(2, '0')) : null,
+        lastOut ? (String(lastOut.getHours()).padStart(2, '0') + ':' + String(lastOut.getMinutes()).padStart(2, '0') + ':' + String(lastOut.getSeconds()).padStart(2, '0')) : null,
         workingHours,
         core_status,
         JSON.stringify(modifier_flags),
-        "Processed"
+        null
       ]);
     }
     res.status(200).json({

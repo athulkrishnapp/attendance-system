@@ -153,29 +153,54 @@ const SwipeReports = () => {
                         <th style={styles.th}>Date</th>
                         <th style={styles.th}>In Time</th>
                         <th style={styles.th}>Out Time</th>
-                        <th style={styles.th}>Remarks</th>
-                        <th style={styles.th}>Regularize Request</th>
                         <th style={styles.th}>Status</th>
+                        <th style={styles.th}>Flags</th>
+                        <th style={styles.th}>Regularization</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredLogs.map(log => {
                         const dateOnly = log.attendance_date.split('T')[0];
+                        
+                        const getStatusDisplay = () => {
+                            if (log.core_status === 'LEAVE') return log.leave_type_name || "Leave";
+                            if (log.core_status === 'HALF_DAY') return "Half Day";
+                            if (log.core_status === 'MISSING_PUNCH') return "Missing Punch";
+                            if (log.core_status === 'WEEKEND') return "Week Off";
+                            if (log.core_status === 'HOLIDAY') return "Holiday";
+                            if (log.core_status === 'PRESENT') return "Present";
+                            if (log.core_status === 'ABSENT') return "Absent";
+                            return log.core_status;
+                        };
+
+                        const hasFlag = (flag) => log.modifier_flags && log.modifier_flags.includes(flag);
+                        const canRegularize = (log.core_status === 'MISSING_PUNCH' || log.core_status === 'ABSENT' || hasFlag('LATE') || hasFlag('EARLY_EXIT')) && !log.regularization_status;
+
                         return (
                           <tr key={log.id} style={styles.tr}>
                             <td style={styles.td}><strong>{dateOnly}</strong></td>
-                            <td style={styles.td}>{log.first_in || "Missing"}</td>
-                            <td style={styles.td}>{log.last_out || "Missing"}</td>
-                            <td style={{...styles.td, color: log.remarks && log.remarks.includes("LATE ARRIVAL") ? "#ef4444" : "inherit" }}>
-                              {log.remarks || (log.core_status === "HALF_DAY" ? "Half Day" : "-")}
+                            <td style={styles.td}>{log.first_in || "-"}</td>
+                            <td style={styles.td}>{log.last_out || "-"}</td>
+                            <td style={{...styles.td, fontWeight: "600"}}>
+                              {getStatusDisplay()}
                             </td>
                             <td style={styles.td}>
-                              {(log.core_status === 'MISSING_PUNCH' || log.core_status === 'ABSENT' || (log.remarks && log.remarks.includes("LATE ARRIVAL"))) && !log.regularization_status ? (
-                                <button onClick={() => openRegModal(log.id, log)} style={styles.regBtn}>Request</button>
+                              {log.modifier_flags && log.modifier_flags.length > 0 ? (
+                                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                                  {log.modifier_flags.map((flag, idx) => (
+                                    <span key={idx} style={styles.flagBadge}>{flag.replace(/_/g, ' ')}</span>
+                                  ))}
+                                </div>
                               ) : "-"}
                             </td>
-                            <td style={{...styles.td, fontWeight: "600", color: log.regularization_status === 'PENDING' ? '#8b5cf6' : 'inherit'}}>
-                              {log.regularization_status || ""}
+                            <td style={styles.td}>
+                              {canRegularize ? (
+                                <button onClick={() => openRegModal(log.id, log)} style={styles.regBtn}>Request</button>
+                              ) : (
+                                <span style={{ fontWeight: "600", color: log.regularization_status === 'PENDING' ? '#8b5cf6' : 'inherit' }}>
+                                  {log.regularization_status || "-"}
+                                </span>
+                              )}
                             </td>
                           </tr>
                         );
@@ -255,14 +280,14 @@ const styles = {
   graphSegment: { height: "100%", transition: "width 0.5s ease" },
   legend: { display: "flex", gap: "20px", fontSize: "13px", fontWeight: "500", color: "var(--text-muted)" },
   tableContainer: { backgroundColor: "var(--bg-card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-sm)", overflow: "hidden", border: "1px solid var(--border)" },
-  table: { width: "100%", borderCollapse: "collapse", textAlign: "left" },
-  th: { backgroundColor: "var(--bg-main)", padding: "14px 20px", borderBottom: "1px solid var(--border)", color: "var(--text-muted)", fontSize: "13px", fontWeight: "600", textTransform: "uppercase" },
-  tr: { borderBottom: "1px solid var(--border)" },
-  td: { padding: "15px 20px", color: "var(--text-main)", fontSize: "14px" },
-  regBtn: { backgroundColor: "var(--primary)", color: "white", border: "none", padding: "8px 16px", borderRadius: "6px", fontSize: "12px", cursor: "pointer", fontWeight: "600" },
-  
-  modalOverlay: { position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", backgroundColor: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000 },
-  modalContent: { backgroundColor: "white", padding: "30px", borderRadius: "12px", width: "450px", boxShadow: "0 10px 25px rgba(0,0,0,0.15)" },
+  table: { width: "100%", borderCollapse: "collapse" },
+  th: { textAlign: "left", padding: "12px 15px", borderBottom: "2px solid var(--border)", color: "var(--text-muted)", fontSize: "14px", fontWeight: "600" },
+  td: { padding: "15px", borderBottom: "1px solid var(--border)", fontSize: "14px", color: "var(--text-main)", verticalAlign: "middle" },
+  tr: { ":hover": { backgroundColor: "var(--bg-card-hover)" } },
+  regBtn: { backgroundColor: "var(--primary)", color: "white", border: "none", padding: "6px 12px", borderRadius: "4px", cursor: "pointer", fontSize: "13px", fontWeight: "500" },
+  flagBadge: { fontSize: "11px", backgroundColor: "#fef3c7", color: "#b45309", padding: "3px 6px", borderRadius: "4px", fontWeight: "600" },
+  modalOverlay: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 },
+  modalContent: { backgroundColor: "white", padding: "30px", borderRadius: "12px", width: "450px", boxShadow: "0 10px 25px rgba(0,0,0,0.2)" },
   label: { display: "block", fontSize: "13px", fontWeight: "600", color: "#475569", marginBottom: "6px" },
   input: { width: "100%", padding: "10px 14px", border: "1px solid #cbd5e1", borderRadius: "6px", fontSize: "14px", outline: "none" },
   cancelBtn: { backgroundColor: "transparent", color: "#475569", border: "1px solid #cbd5e1", padding: "10px 16px", borderRadius: "6px", cursor: "pointer", fontWeight: "600" },

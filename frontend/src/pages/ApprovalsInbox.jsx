@@ -50,8 +50,10 @@ const ApprovalsInbox = () => {
 
   // Status and Action Handlers
   const handleApproveLeave = async (id) => {
+    const remarks = window.prompt("Enter approval remarks (optional):");
+    if (remarks === null) return; // Cancelled
     try {
-      await api.leaveRequests.approve(id, { resolver_id: user.id });
+      await api.leaveRequests.approve(id, { resolver_id: user.id, remarks });
       fetchData();
     } catch (err) { alert("Failed to approve request"); }
   };
@@ -128,11 +130,19 @@ const ApprovalsInbox = () => {
   };
 
   const isActionable = (item) => {
-    if (item.status === 'PENDING_MANAGER' && item.employee_manager_id === user.id) return true;
+    const uId = Number(user?.id);
+    if (item.status === 'PENDING_MANAGER') {
+      if (item.forwarded_by_id) {
+        if (Number(item.forwarder_manager_id) === uId) return true;
+      } else {
+        if (Number(item.employee_manager_id) === uId) return true;
+      }
+    }
     if (item.status === 'PENDING_ADMIN') {
       if (isSuperAdmin) return true;
-      if (isSubAdmin && item.forwarder_manager_id === user.id) return true;
+      if (isSubAdmin && Number(item.forwarder_manager_id) === uId) return true;
     }
+    // SuperAdmin can fallback to viewing any pending request
     if (isSuperAdmin && (item.status === 'PENDING_MANAGER' || item.status === 'PENDING')) return true;
     return false;
   };
@@ -143,10 +153,11 @@ const ApprovalsInbox = () => {
   const processedBalances = useMemo(() => balanceActions.filter(b => filterByDate(b.applied_on)), [balanceActions, filterMonth, filterYear]);
 
   const displayedData = () => {
+    const uId = Number(user?.id);
     if (activeTab === 'leaves') {
-      return subTab === 'pending' ? processedLeaves.filter(l => isActionable(l) && l.status !== 'APPROVED' && l.status !== 'REJECTED') : processedLeaves.filter(l => l.status === 'APPROVED' || l.status === 'REJECTED' || (l.forwarded_by_id === user.id));
+      return subTab === 'pending' ? processedLeaves.filter(l => isActionable(l) && l.status !== 'APPROVED' && l.status !== 'REJECTED') : processedLeaves.filter(l => l.status === 'APPROVED' || l.status === 'REJECTED' || (Number(l.forwarded_by_id) === uId));
     } else if (activeTab === 'regularizations') {
-      return subTab === 'pending' ? processedRegularizations.filter(r => isActionable(r) && r.status !== 'APPROVED' && r.status !== 'REJECTED') : processedRegularizations.filter(r => r.status === 'APPROVED' || r.status === 'REJECTED' || (r.forwarded_by_id === user.id));
+      return subTab === 'pending' ? processedRegularizations.filter(r => isActionable(r) && r.status !== 'APPROVED' && r.status !== 'REJECTED') : processedRegularizations.filter(r => r.status === 'APPROVED' || r.status === 'REJECTED' || (Number(r.forwarded_by_id) === uId));
     } else {
       return subTab === 'pending' ? processedBalances.filter(b => b.status === 'PENDING') : processedBalances.filter(b => b.status !== 'PENDING');
     }
@@ -201,7 +212,7 @@ const ApprovalsInbox = () => {
                       <th style={styles.th}>Employee</th>
                       <th style={styles.th}>Leave Type</th>
                       <th style={styles.th}>Dates</th>
-                      <th style={styles.th}>Reason</th>
+                      <th style={styles.th}>Description & Times</th>
                       <th style={styles.th}>Status</th>
                       <th style={styles.th}>Actions</th>
                     </tr>
@@ -235,6 +246,20 @@ const ApprovalsInbox = () => {
                       <td style={styles.td}>
                         <div style={{ fontWeight: "600" }}>{item.employee_name || item.name}</div>
                         <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>{item.employee_code}</div>
+                        
+                        {item.department_name && (
+                          <div style={{marginTop: "8px", fontSize: "11px", backgroundColor: "#f1f5f9", padding: "6px", borderRadius: "4px", color: "#475569"}}>
+                            <div><strong>Shift:</strong> {item.shift_name || 'N/A'}</div>
+                            <div><strong>Dept:</strong> {item.department_name}</div>
+                            {item.max_concurrent_leaves !== null && (
+                              <>
+                                <div><strong>Dept Limit:</strong> {item.max_concurrent_leaves}</div>
+                                <div><strong>Approved Leaves:</strong> {item.concurrent_leaves}</div>
+                                <div><strong>Available Slots:</strong> {Math.max(0, item.max_concurrent_leaves - item.concurrent_leaves)}</div>
+                              </>
+                            )}
+                          </div>
+                        )}
                       </td>
 
                       {activeTab === 'leaves' && (
@@ -245,8 +270,28 @@ const ApprovalsInbox = () => {
                             <div style={{fontSize: "12px", color: "var(--text-muted)", marginTop: "4px"}}>{item.total_days} Days</div>
                           </td>
                           <td style={styles.td}>
-                            <div style={{maxWidth: "200px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"}}>{item.reason}</div>
-                            {item.document_url && <a href={`http://localhost:5001/${item.document_url}`} target="_blank" rel="noreferrer" style={{fontSize: "12px", color: "var(--primary)"}}>📎 View Doc</a>}
+                            <div style={{maxWidth: "200px", whiteSpace: "normal", wordWrap: "break-word"}}>{item.reason}</div>
+                            
+                            {item.warnings && item.warnings.length > 0 && (
+                              <div style={{marginTop: "8px", padding: "6px", backgroundColor: "#fffbeb", borderLeft: "3px solid #f59e0b", fontSize: "12px", color: "#92400e"}}>
+                                <strong>System Warnings:</strong>
+                                <ul style={{margin: "4px 0 0 16px", padding: 0}}>
+                                  {item.warnings.map((w, idx) => <li key={idx}>{w}</li>)}
+                                </ul>
+                              </div>
+                            )}
+
+                            <div style={{fontSize: "12px", color: "var(--text-muted)", marginTop: "6px"}}>
+                              <div><strong>Sent:</strong> {new Date(item.applied_on).toLocaleString()}</div>
+                              {item.forwarded_at && <div><strong>Fwd:</strong> {new Date(item.forwarded_at).toLocaleString()}</div>}
+                            </div>
+                            
+                            {item.resolution_remarks && (item.status === 'REJECTED' || item.status === 'APPROVED') && (
+                              <div style={{fontSize: "12px", color: item.status === 'REJECTED' ? "var(--badge-rejected-text)" : "var(--badge-approved-text)", marginTop: "4px", backgroundColor: item.status === 'REJECTED' ? "var(--badge-rejected-bg)" : "var(--badge-approved-bg)", padding: "4px", borderRadius: "4px"}}>
+                                <strong>Remark:</strong> {item.resolution_remarks}
+                              </div>
+                            )}
+                            {item.document_url && <div style={{marginTop: "4px"}}><a href={`http://localhost:5001/${item.document_url}`} target="_blank" rel="noreferrer" style={{fontSize: "12px", color: "var(--primary)"}}>📎 View Doc</a></div>}
                           </td>
                         </>
                       )}
@@ -284,11 +329,13 @@ const ApprovalsInbox = () => {
                       <td style={styles.td}>
                         {subTab === 'pending' ? (
                           <div style={{ display: 'flex', gap: '8px' }}>
-                            <button style={styles.approveBtn} onClick={() => {
-                              if(activeTab==='leaves') handleApproveLeave(item.id);
-                              else if(activeTab==='regularizations') handleApproveReg(item.id);
-                              else handleBalanceAction(item.id, 'APPROVED');
-                            }}>Approve</button>
+                            {(isSuperAdmin || isSubAdmin) && (
+                              <button style={styles.approveBtn} onClick={() => {
+                                if(activeTab==='leaves') handleApproveLeave(item.id);
+                                else if(activeTab==='regularizations') handleApproveReg(item.id);
+                                else handleBalanceAction(item.id, 'APPROVED');
+                              }}>Approve</button>
+                            )}
                             <button style={styles.rejectBtn} onClick={() => {
                               if(activeTab==='leaves') openRejectModal('leave', item.id);
                               else if(activeTab==='regularizations') openRejectModal('regularization', item.id);

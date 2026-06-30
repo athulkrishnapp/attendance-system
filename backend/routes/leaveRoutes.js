@@ -21,6 +21,7 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage });
 
 // Employee Routes
+router.post("/validate", upload.none(), leaveController.validateLeave);
 router.post("/request", upload.single("file"), leaveController.requestLeave);
 router.get("/my-leaves/:id", leaveController.getMyLeaves);
 

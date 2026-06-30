@@ -65,8 +65,9 @@ export const api = {
   },
   // Leave Requests (Granular)
   leaveRequests: {
+    validate: (data) => API.post("/leaves/validate", data),
     request: (data) => API.post("/leaves/request", data),
-    approve: (id) => API.put(`/leaves/${id}/approve`),
+    approve: (id, data) => API.put(`/leaves/${id}/approve`, data),
     reject: (id, data) => API.put(`/leaves/${id}/reject`, data),
     forward: (id, data) => API.put(`/leaves/${id}/forward`, data),
     getBalances: (employeeId) => API.get(`/leaves/balances/${employeeId}`),

@@ -18,6 +18,10 @@ const RequestLeave = () => {
   const [leaves, setLeaves] = useState([]);
   const [leaveTypes, setLeaveTypes] = useState([]);
   const [msg, setMsg] = useState({ text: "", type: "" });
+  const [activeTab, setActiveTab] = useState('ONGOING');
+  const [backendWarnings, setBackendWarnings] = useState([]);
+  const [backendStats, setBackendStats] = useState(null);
+
   
   const [leaveForm, setLeaveForm] = useState({ 
     start_date: "", 
@@ -33,6 +37,23 @@ const RequestLeave = () => {
     fetchMyLeaves(); 
     fetchLeaveTypes();
   }, []);
+
+  useEffect(() => {
+    if (leaveForm.start_date && leaveForm.leave_type_id) {
+      api.leaveRequests.validate({
+        employee_id: user.id,
+        start_date: leaveForm.start_date,
+        end_date: leaveForm.end_date,
+        leave_type_id: leaveForm.leave_type_id
+      }).then(res => {
+        setBackendWarnings(res.data.warnings || []);
+        setBackendStats(res.data.stats || null);
+      }).catch(err => console.error(err));
+    } else {
+      setBackendWarnings([]);
+      setBackendStats(null);
+    }
+  }, [leaveForm.start_date, leaveForm.end_date, leaveForm.leave_type_id, user.id]);
 
   const fetchLeaveTypes = async () => {
     try {
@@ -51,26 +72,7 @@ const RequestLeave = () => {
     } catch (err) { console.error(err); }
   };
 
-  // Dynamic Date Calculator based on Leave Type Rules
   const getSelectedLeaveType = () => leaveTypes.find(t => t.id == leaveForm.leave_type_id);
-  const getNoticeDays = () => {
-    const type = getSelectedLeaveType();
-    return type ? type.min_advance_notice_days : 0;
-  };
-
-  const getMinStartDate = () => {
-    const date = new Date();
-    const notice = getNoticeDays();
-    if (notice > 0) {
-      date.setDate(date.getDate() + parseInt(notice));
-    }
-    const yyyy = date.getFullYear();
-    const mm = String(date.getMonth() + 1).padStart(2, '0');
-    const dd = String(date.getDate()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}`;
-  };
-
-  const minStartDateFormatted = getMinStartDate();
 
   const submitLeave = async (e) => {
     e.preventDefault();
@@ -79,10 +81,7 @@ const RequestLeave = () => {
     const actualEndDate = leaveForm.end_date || leaveForm.start_date;
     const isActuallyMultiDay = leaveForm.start_date !== actualEndDate;
 
-    const minAllowedDate = new Date(minStartDateFormatted);
     const selectedStartDate = new Date(leaveForm.start_date);
-    
-    minAllowedDate.setHours(0,0,0,0);
     selectedStartDate.setHours(0,0,0,0);
 
     if (new Date(actualEndDate) < new Date(leaveForm.start_date)) {
@@ -131,12 +130,85 @@ const RequestLeave = () => {
 
   // Helper for Status Badges
   const getStatusStyle = (status) => {
-    switch(status) {
-      case 'APPROVED': return styles.badgeSuccess;
-      case 'REJECTED': return styles.badgeError;
-      default: return styles.badgeWarning;
-    }
+    if (!status) return styles.badgeWarning;
+    if (status.includes('APPROVED')) return styles.badgeSuccess;
+    if (status.includes('REJECTED')) return styles.badgeError;
+    return styles.badgeWarning;
   };
+
+  const ongoingLeaves = leaves.filter(l => l.status && l.status.startsWith('PENDING'));
+  const historyLeaves = leaves.filter(l => !l.status || !l.status.startsWith('PENDING'));
+
+  const renderTable = (data) => (
+    <div style={{ overflowY: "auto", maxHeight: "550px" }}>
+      <table style={styles.table}>
+        <thead style={styles.stickyHeader}>
+          <tr>
+            <th style={styles.th}>Date Range</th>
+            <th style={styles.th}>Leave Type</th>
+            <th style={styles.th}>Description</th>
+            <th style={styles.th}>Times</th>
+            <th style={styles.th}>Remarks</th>
+            <th style={styles.th}>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.map(l => {
+            const portionText = l.leave_portion ? l.leave_portion.replace('_', ' ') : l.duration;
+            const portionDisplay = l.leave_portion === 'HOURLY' ? ` (${l.hourly_duration}h)` : ` (${portionText})`;
+            
+            return (
+            <tr key={l.id} style={styles.tr}>
+              <td style={styles.td}>
+                {l.start_date === l.end_date 
+                  ? new Date(l.start_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+                  : `${new Date(l.start_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} - ${new Date(l.end_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`
+                }
+                <div style={{fontSize: "12px", color: "var(--text-muted)", marginTop: "4px"}}>{l.total_days} Days</div>
+              </td>
+              <td style={styles.td}>
+                <strong style={{color: "var(--text-main)"}}>{l.leave_type_name || l.leave_type || 'Unknown'} {portionDisplay}</strong>
+              </td>
+              <td style={styles.td}>
+                <div style={{fontSize: "12px", color: "var(--text-muted)"}}>
+                  {l.reason}
+                </div>
+              </td>
+              <td style={styles.td}>
+                <div style={{fontSize: "12px", color: "var(--text-muted)"}}>
+                  <div><strong>Sent:</strong> {new Date(l.applied_on).toLocaleString()}</div>
+                  {l.forwarded_at && <div><strong>Fwd:</strong> {new Date(l.forwarded_at).toLocaleString()}</div>}
+                  {l.resolved_at && <div><strong>Resolved:</strong> {new Date(l.resolved_at).toLocaleString()}</div>}
+                </div>
+              </td>
+              <td style={styles.td}>
+                <div style={{fontSize: "12px", color: "var(--text-muted)"}}>
+                  {l.resolution_remarks ? l.resolution_remarks : '-'}
+                </div>
+              </td>
+              <td style={styles.td}>
+                <span style={{...styles.badge, ...getStatusStyle(l.status)}}>
+                  {l.status === 'PENDING' && l.pending_manager_name ? `PENDING MGR (${l.pending_manager_name}${l.pending_manager_level ? ` - ${l.pending_manager_level}` : ''})` :
+                   l.status === 'PENDING_MANAGER' && l.pending_manager_name ? `PENDING MGR (${l.pending_manager_name}${l.pending_manager_level ? ` - ${l.pending_manager_level}` : ''})` : 
+                   l.status === 'PENDING_ADMIN' ? 'PENDING ADMIN' :
+                   l.status}
+                </span>
+              </td>
+            </tr>
+            );
+          })}
+          {data.length === 0 && (
+            <tr>
+              <td colSpan="6" style={{textAlign:"center", padding: "40px", color:"var(--text-muted)"}}>
+                <span style={{fontSize: "24px", display: "block", marginBottom: "10px"}}>📭</span>
+                No leave requests found.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
 
   return (
     <div style={styles.layout}>
@@ -163,17 +235,27 @@ const RequestLeave = () => {
                   <div style={msg.type === "error" ? styles.errorMsg : styles.successMsg}>{msg.text}</div>
                 )}
                 
-                {selectedType && selectedType.min_advance_notice_days > 0 && (
-                  <div style={styles.purpleBanner}>
-                    <strong>Note:</strong> This leave type should ideally be requested at least " <strong>{selectedType.min_advance_notice_days} days" </strong> in advance.
+                {backendStats && backendStats.department && (
+                  <div style={{...styles.purpleBanner, backgroundColor: "#f1f5f9", color: "#334155", borderLeft: "4px solid #94a3b8", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", padding: "15px"}}>
+                    <div><strong>Shift:</strong> {backendStats.shift}</div>
+                    <div><strong>Department:</strong> {backendStats.department}</div>
+                    {backendStats.max_concurrent > 0 && (
+                      <>
+                        <div><strong>Dept Limit:</strong> {backendStats.max_concurrent}</div>
+                        <div><strong>Approved Leaves:</strong> {backendStats.approved_leaves}</div>
+                        <div style={{gridColumn: "span 2", marginTop: "5px", fontWeight: "bold", color: backendStats.available_slots === 0 ? "var(--badge-rejected-text)" : "var(--badge-approved-text)"}}>
+                          Available Slots: {backendStats.available_slots}
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
                 
-                {leaveForm.start_date && new Date(leaveForm.start_date).setHours(0,0,0,0) < new Date(minStartDateFormatted).setHours(0,0,0,0) && (
-                  <div style={styles.warningBanner}>
-                    <strong>Warning:</strong> You are requesting leave without the standard notice period. Your manager will be notified and this may affect approval.
+                {backendWarnings.map((w, idx) => (
+                  <div key={idx} style={styles.warningBanner}>
+                    <strong>Warning:</strong> {w}
                   </div>
-                )}
+                ))}
 
                 <form onSubmit={submitLeave} style={styles.form}>
                   <label style={styles.label}>Leave Type</label>
@@ -265,52 +347,23 @@ const RequestLeave = () => {
             {/* RIGHT COLUMN: History Table */}
             <div style={styles.card}>
               <div style={styles.cardHeader}>
-                <h3 style={styles.cardTitle}>My Request History</h3>
+                <div style={{display: 'flex', gap: '20px', alignItems: 'center'}}>
+                  <h3 
+                    style={{...styles.cardTitle, cursor: 'pointer', borderBottom: activeTab === 'ONGOING' ? '2px solid var(--primary)' : 'none', color: activeTab === 'ONGOING' ? 'var(--primary)' : 'var(--text-muted)', paddingBottom: '5px'}} 
+                    onClick={() => setActiveTab('ONGOING')}
+                  >
+                    Ongoing Requests
+                  </h3>
+                  <h3 
+                    style={{...styles.cardTitle, cursor: 'pointer', borderBottom: activeTab === 'HISTORY' ? '2px solid var(--primary)' : 'none', color: activeTab === 'HISTORY' ? 'var(--primary)' : 'var(--text-muted)', paddingBottom: '5px'}} 
+                    onClick={() => setActiveTab('HISTORY')}
+                  >
+                    Request History
+                  </h3>
+                </div>
               </div>
               <div style={styles.cardBodyTable}>
-                <div style={{ overflowY: "auto", maxHeight: "550px" }}>
-                  <table style={styles.table}>
-                    <thead style={styles.stickyHeader}>
-                      <tr>
-                        <th style={styles.th}>Date Range</th>
-                        <th style={styles.th}>Details</th>
-                        <th style={styles.th}>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {leaves.map(l => (
-                        <tr key={l.id} style={styles.tr}>
-                          <td style={styles.td}>
-                            {l.start_date === l.end_date 
-                              ? new Date(l.start_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-                              : `${new Date(l.start_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} - ${new Date(l.end_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`
-                            }
-                          </td>
-                          <td style={styles.td}>
-                            <strong style={{color: "var(--text-main)"}}>{l.leave_type_name || l.leave_type}</strong><br/>
-                            <span style={{fontSize: "12px", color: "var(--text-muted)"}}>
-                              {l.leave_portion ? l.leave_portion.replace('_', ' ') : l.duration} 
-                              {l.leave_portion === 'HOURLY' ? ` (${l.hourly_duration}h)` : ''}
-                            </span>
-                          </td>
-                          <td style={styles.td}>
-                            <span style={{...styles.badge, ...getStatusStyle(l.status)}}>
-                              {l.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                      {leaves.length === 0 && (
-                        <tr>
-                          <td colSpan="3" style={{textAlign:"center", padding: "40px", color:"var(--text-muted)"}}>
-                            <span style={{fontSize: "24px", display: "block", marginBottom: "10px"}}>📭</span>
-                            No past leave requests found.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                {activeTab === 'ONGOING' ? renderTable(ongoingLeaves) : renderTable(historyLeaves)}
               </div>
             </div>
 

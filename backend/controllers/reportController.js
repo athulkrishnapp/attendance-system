@@ -49,13 +49,19 @@ const getAttendanceReport = async (req, res) => {
 const getMyAttendance = async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT *, TO_CHAR(attendance_date, 'YYYY-MM-DD') as attendance_date 
-      FROM attendance_summary 
-      WHERE employee_id = $1 
-      ORDER BY attendance_date DESC
+      SELECT a.*, TO_CHAR(a.attendance_date, 'YYYY-MM-DD') as attendance_date,
+             lt.name as leave_type_name
+      FROM attendance_summary a
+      LEFT JOIN leave_requests lr ON a.employee_id = lr.employee_id 
+           AND lr.status = 'APPROVED' 
+           AND a.attendance_date >= lr.start_date AND a.attendance_date <= lr.end_date
+      LEFT JOIN leave_types lt ON lr.leave_type_id = lt.id
+      WHERE a.employee_id = $1 
+      ORDER BY a.attendance_date DESC
     `, [req.params.id]);
     res.json(result.rows);
   } catch (err) {
+    console.error("Error fetching personal attendance:", err);
     res.status(500).send("Error fetching personal attendance");
   }
 };

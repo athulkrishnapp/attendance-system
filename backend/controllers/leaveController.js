@@ -1,4 +1,5 @@
 const pool = require("../db");
+const { computeWarningsAndStats } = require("./helpers");
 
 exports.requestLeave = async (req, res) => {
   try {
@@ -21,14 +22,15 @@ exports.requestLeave = async (req, res) => {
     }
 
     const documentUrl = req.file ? req.file.path : null;
+    const { warnings, stats } = await computeWarningsAndStats(employee_id, leave_type_id, start_date, finalEndDate);
 
     const query = `
-      INSERT INTO leave_requests (employee_id, start_date, end_date, reason, leave_type_id, leave_portion, hourly_duration, status, document_url)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      INSERT INTO leave_requests (employee_id, start_date, end_date, reason, leave_type_id, leave_portion, hourly_duration, status, document_url, warnings)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *;
     `;
     
-    const values = [employee_id, start_date, finalEndDate, reason, leave_type_id, leave_portion || 'FULL_DAY', hourly_duration || null, initialStatus, documentUrl];
+    const values = [employee_id, start_date, finalEndDate, reason, leave_type_id, leave_portion || 'FULL_DAY', hourly_duration || null, initialStatus, documentUrl, JSON.stringify(warnings)];
 
     const result = await pool.query(query, values);
     
@@ -43,13 +45,54 @@ exports.requestLeave = async (req, res) => {
   }
 };
 
+exports.validateLeave = async (req, res) => {
+  try {
+    const { employee_id, start_date, end_date, leave_type_id } = req.body;
+    if (!employee_id || !start_date) {
+      return res.json({ warnings: [], stats: {} });
+    }
+    const finalEndDate = end_date || start_date;
+    const { warnings, stats } = await computeWarningsAndStats(employee_id, leave_type_id, start_date, finalEndDate);
+    res.json({ warnings, stats });
+  } catch (err) {
+    console.error("Error validating leave:", err.message);
+    res.status(500).json({ error: "Server error while validating leave." });
+  }
+};
+
 exports.getMyLeaves = async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT l.*, e.name as resolved_by_name, f.name as forwarded_by_name 
+      SELECT 
+        l.*, 
+        t.name as leave_type_name, 
+        e.name as resolved_by_name, 
+        f.name as forwarded_by_name,
+        CASE 
+          WHEN l.leave_portion = 'FULL_DAY' THEN (l.end_date - l.start_date) + 1
+          WHEN l.leave_portion IN ('FIRST_HALF', 'SECOND_HALF', 'HALF_DAY') THEN 0.5
+          WHEN l.leave_portion = 'HOURLY' THEN l.hourly_duration / 8.0
+          ELSE 1
+        END as total_days,
+        CASE 
+          WHEN l.status = 'PENDING_MANAGER' AND l.forwarded_by_id IS NOT NULL THEN fwd_mgr.name
+          WHEN l.status IN ('PENDING', 'PENDING_MANAGER') THEN emp_mgr.name
+          ELSE NULL
+        END as pending_manager_name,
+        CASE 
+          WHEN l.status = 'PENDING_MANAGER' AND l.forwarded_by_id IS NOT NULL THEN fwd_mgr_level.level_name
+          WHEN l.status IN ('PENDING', 'PENDING_MANAGER') THEN emp_mgr_level.level_name
+          ELSE NULL
+        END as pending_manager_level
       FROM leave_requests l
+      LEFT JOIN leave_types t ON l.leave_type_id = t.id
       LEFT JOIN employees e ON l.resolved_by_id = e.id
       LEFT JOIN employees f ON l.forwarded_by_id = f.id
+      LEFT JOIN employees req_emp ON l.employee_id = req_emp.id
+      LEFT JOIN employees emp_mgr ON req_emp.manager_id = emp_mgr.id
+      LEFT JOIN employee_levels emp_mgr_level ON emp_mgr.level_id = emp_mgr_level.id
+      LEFT JOIN employees fwd_mgr ON f.manager_id = fwd_mgr.id
+      LEFT JOIN employee_levels fwd_mgr_level ON fwd_mgr.level_id = fwd_mgr_level.id
       WHERE l.employee_id = $1 ORDER BY l.applied_on DESC
     `, [req.params.id]);
     res.json(result.rows);
@@ -70,12 +113,33 @@ exports.getAllLeaves = async (req, res) => {
     }
 
     const result = await pool.query(`
-      SELECT l.*, e.name, e.employee_code, m.name as forwarded_by_name,
+      SELECT l.*, t.name as leave_type_name, e.name, e.employee_code, m.name as forwarded_by_name,
              e.manager_id as employee_manager_id,
-             m.manager_id as forwarder_manager_id
+             m.manager_id as forwarder_manager_id,
+             d.department_name,
+             d.max_concurrent_leaves,
+             s.shift_name,
+             (
+               SELECT COUNT(DISTINCT lr2.employee_id)
+               FROM leave_requests lr2
+               JOIN employees e2 ON lr2.employee_id = e2.id
+               WHERE e2.department_id = e.department_id 
+                 AND lr2.status = 'APPROVED'
+                 AND lr2.employee_id != e.id
+                 AND (lr2.start_date <= l.end_date AND lr2.end_date >= l.start_date)
+             ) as concurrent_leaves,
+             CASE 
+               WHEN l.leave_portion = 'FULL_DAY' THEN (l.end_date - l.start_date) + 1
+               WHEN l.leave_portion IN ('FIRST_HALF', 'SECOND_HALF', 'HALF_DAY') THEN 0.5
+               WHEN l.leave_portion = 'HOURLY' THEN l.hourly_duration / 8.0
+               ELSE 1
+             END as total_days
       FROM leave_requests l
       JOIN employees e ON l.employee_id = e.id
       LEFT JOIN employees m ON l.forwarded_by_id = m.id
+      LEFT JOIN leave_types t ON l.leave_type_id = t.id
+      LEFT JOIN departments d ON e.department_id = d.id
+      LEFT JOIN shifts s ON e.shift_id = s.id
       ${whereClause}
       ORDER BY l.applied_on DESC
     `, queryParams);
@@ -98,8 +162,11 @@ exports.updateLeaveStatus = async (req, res) => {
 exports.approveLeave = async (req, res) => {
   try {
     const { id } = req.params;
-    const { resolver_id } = req.body;
-    const result = await pool.query("UPDATE leave_requests SET status = 'APPROVED', resolved_by_id = $1 WHERE id = $2 RETURNING *", [resolver_id || null, id]);
+    const { admin_id, remarks } = req.body;
+    const result = await pool.query(
+      "UPDATE leave_requests SET status = 'APPROVED', resolved_by_id = $1, resolved_at = CURRENT_TIMESTAMP, resolution_remarks = $2 WHERE id = $3 RETURNING *", 
+      [admin_id || null, remarks || null, id]
+    );
     if (result.rows.length === 0) return res.status(404).json({ error: "Leave request not found" });
     
     const leave = result.rows[0];
@@ -145,7 +212,7 @@ exports.approveLeave = async (req, res) => {
 exports.forwardLeave = async (req, res) => {
   try {
     const { id } = req.params;
-    const { manager_id } = req.body;
+    const { manager_id, remarks } = req.body;
     
     const mgrResult = await pool.query("SELECT manager_id FROM employees WHERE id = $1", [manager_id]);
     const nextManagerId = mgrResult.rows[0]?.manager_id;
@@ -155,7 +222,10 @@ exports.forwardLeave = async (req, res) => {
       newStatus = 'PENDING_ADMIN';
     }
 
-    await pool.query("UPDATE leave_requests SET status = $1, forwarded_by_id = $2 WHERE id = $3", [newStatus, manager_id, id]);
+    await pool.query(
+      "UPDATE leave_requests SET status = $1, forwarded_by_id = $2, forwarded_at = CURRENT_TIMESTAMP, resolution_remarks = $3 WHERE id = $4", 
+      [newStatus, manager_id, remarks || null, id]
+    );
     res.json({ message: "Leave forwarded successfully." });
   } catch (err) {
     res.status(500).json({ error: "Failed to forward leave" });
@@ -168,7 +238,7 @@ exports.rejectLeave = async (req, res) => {
     const { rejection_reason, resolver_id } = req.body;
     if (!rejection_reason) return res.status(400).json({ error: "Rejection reason is required." });
     
-    const result = await pool.query("UPDATE leave_requests SET status = 'REJECTED', rejection_reason = $1, resolved_by_id = $2 WHERE id = $3 RETURNING *", [rejection_reason, resolver_id || null, id]);
+    const result = await pool.query("UPDATE leave_requests SET status = 'REJECTED', resolution_remarks = $1, resolved_by_id = $2, resolved_at = CURRENT_TIMESTAMP WHERE id = $3 RETURNING *", [rejection_reason, resolver_id || null, id]);
     if (result.rows.length === 0) return res.status(404).json({ error: "Leave request not found" });
     res.json({ message: "Leave rejected successfully.", leave: result.rows[0] });
   } catch (err) {
@@ -341,6 +411,21 @@ exports.getLeaveBalances = async (req, res) => {
     );
     const taken = takenRes.rows;
 
+    const requestedRes = await pool.query(
+      `SELECT leave_type_id, SUM(
+          CASE 
+            WHEN leave_portion = 'FULL_DAY' THEN (end_date - start_date) + 1
+            WHEN leave_portion IN ('FIRST_HALF', 'SECOND_HALF', 'HALF_DAY') THEN 0.5
+            WHEN leave_portion = 'HOURLY' THEN hourly_duration / 8.0
+            ELSE 1
+          END
+        ) as days_requested
+       FROM leave_requests
+       WHERE employee_id = $1 AND status IN ('PENDING', 'PENDING_MANAGER', 'PENDING_ADMIN')
+       GROUP BY leave_type_id`, [id]
+    );
+    const requested = requestedRes.rows;
+
     // Get custom allocations
     const year = new Date().getFullYear();
     const customRes = await pool.query(
@@ -365,6 +450,9 @@ exports.getLeaveBalances = async (req, res) => {
       const surrenderedRecord = surrendered.find(s => s.leave_type_id === lt.leave_type_id);
       const daysSurrendered = surrenderedRecord ? parseFloat(surrenderedRecord.surrendered_days) : 0;
       
+      const requestedRecord = requested.find(r => r.leave_type_id === lt.leave_type_id);
+      const daysRequested = requestedRecord ? parseFloat(requestedRecord.days_requested) : 0;
+      
       const customRecord = customAllocations.find(c => c.leave_type_id === lt.leave_type_id);
       const entRecord = entitlements.find(e => e.leave_type_id === lt.leave_type_id);
       
@@ -383,7 +471,8 @@ exports.getLeaveBalances = async (req, res) => {
         annual_quota: allocated,
         days_taken: daysTaken,
         days_surrendered: daysSurrendered,
-        balance: allocated - daysTaken - daysSurrendered
+        days_requested: daysRequested,
+        balance: allocated - daysTaken - daysSurrendered - daysRequested
       };
     }); // removed the filter to show all leaves
 
