@@ -60,7 +60,15 @@ exports.getMyLeaves = async (req, res) => {
 
 exports.getAllLeaves = async (req, res) => {
   try {
-    // Join with employees table so the Admin sees names, not just IDs
+    const { requester_id, is_super_admin } = req.query;
+    let queryParams = [];
+    let whereClause = "";
+
+    if (is_super_admin !== 'true' && requester_id) {
+      whereClause = "WHERE e.manager_id = $1 OR (l.forwarded_by_id IS NOT NULL AND m.manager_id = $1)";
+      queryParams.push(requester_id);
+    }
+
     const result = await pool.query(`
       SELECT l.*, e.name, e.employee_code, m.name as forwarded_by_name,
              e.manager_id as employee_manager_id,
@@ -68,8 +76,9 @@ exports.getAllLeaves = async (req, res) => {
       FROM leave_requests l
       JOIN employees e ON l.employee_id = e.id
       LEFT JOIN employees m ON l.forwarded_by_id = m.id
+      ${whereClause}
       ORDER BY l.applied_on DESC
-    `);
+    `, queryParams);
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch all leaves" });
@@ -138,13 +147,16 @@ exports.forwardLeave = async (req, res) => {
     const { id } = req.params;
     const { manager_id } = req.body;
     
-    // Get the manager's manager (sub-admin)
     const mgrResult = await pool.query("SELECT manager_id FROM employees WHERE id = $1", [manager_id]);
-    const subAdminId = mgrResult.rows[0]?.manager_id;
+    const nextManagerId = mgrResult.rows[0]?.manager_id;
     
-    // Forward to the sub-admin. The status becomes PENDING_ADMIN.
-    await pool.query("UPDATE leave_requests SET status = 'PENDING_ADMIN', forwarded_by_id = $1 WHERE id = $2", [manager_id, id]);
-    res.json({ message: "Leave forwarded to Admin successfully." });
+    let newStatus = 'PENDING_MANAGER';
+    if (!nextManagerId || nextManagerId === 1) {
+      newStatus = 'PENDING_ADMIN';
+    }
+
+    await pool.query("UPDATE leave_requests SET status = $1, forwarded_by_id = $2 WHERE id = $3", [newStatus, manager_id, id]);
+    res.json({ message: "Leave forwarded successfully." });
   } catch (err) {
     res.status(500).json({ error: "Failed to forward leave" });
   }

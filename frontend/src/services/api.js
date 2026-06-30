@@ -75,7 +75,7 @@ export const api = {
   // Regularizations
   regularizations: {
     request: (data) => API.post("/attendance/regularize", data),
-    getAllPending: () => API.get("/attendance/regularize/pending"),
+    getAllPending: (params) => API.get("/attendance/regularize/pending", { params }),
     process: (id, data) => API.put(`/attendance/regularize/${id}/process`, data),
     forward: (id, data) => API.put(`/attendance/regularize/${id}/forward`, data),
   },

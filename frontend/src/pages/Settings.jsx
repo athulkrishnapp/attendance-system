@@ -9,7 +9,7 @@ const Settings = () => {
 
   // Global Settings & Holidays
   const [settings, setSettings] = useState({
-    shift_start_time: "", shift_end_time: "", grace_period_minutes: 0, required_working_hours: 0, casual_leave_notice_days: 0, financial_year_start_month: 1, financial_year_end_month: 12, working_days: [1,2,3,4,5,6]
+    shift_start_time: "", shift_end_time: "", grace_period_minutes: 0, required_working_hours: 0, casual_leave_notice_days: 0, financial_year_start_month: 1, financial_year_end_month: 12, working_days: [1,2,3,4,5,6], calculation_mode: "WORKING_HOURS"
   });
   const [holidays, setHolidays] = useState([]);
   const [newHoliday, setNewHoliday] = useState({ holiday_date: "", description: "" });
@@ -435,6 +435,14 @@ const Settings = () => {
                         <select value={settings.financial_year_end_month} onChange={(e) => setSettings({...settings, financial_year_end_month: e.target.value})} style={styles.formInput}>
                           {Array.from({length: 12}, (_, i) => (<option key={i} value={i+1}>{new Date(0, i).toLocaleString('default', { month: 'long' })}</option>))}
                         </select>
+                      </div>
+                      <div style={styles.formGroupFull}>
+                        <label style={styles.formLabel}>Attendance Calculation Mode</label>
+                        <select value={settings.calculation_mode} onChange={(e) => setSettings({...settings, calculation_mode: e.target.value})} style={styles.formInput}>
+                          <option value="WORKING_HOURS">Working Hours Based</option>
+                          <option value="SHIFT_TIMING">Shift Timing Based</option>
+                        </select>
+                        <p style={{fontSize: "12px", color: "var(--text-muted)", marginTop: "4px"}}>Determines how Half Days and Absent statuses are calculated.</p>
                       </div>
                       <div style={styles.formGroupFull}>
                         <label style={styles.formLabel}>Weekly Working Days</label>
@@ -907,30 +915,95 @@ const Settings = () => {
                   <p style={styles.cardDesc}>These statuses and flags are integrated directly into the system's core calculation engine.</p>
                   
                   <div style={{...styles.card, marginBottom: "20px"}}>
-                    <h3 style={styles.cardTitle}>Attendance Statuses</h3>
+                    <h3 style={styles.cardTitle}>Attendance Statuses & Flags ({settings.calculation_mode === 'SHIFT_TIMING' ? 'Shift Timing Based' : 'Working Hours Based'})</h3>
                     <hr style={styles.divider} />
-                    <ul style={{ listStyleType: 'none', padding: 0, margin: 0, color: '#334155', fontSize: '15px' }}>
-                      <li style={{ marginBottom: '12px' }}><strong>Present</strong>: Employee has punched in and out, and worked at least half the required hours.</li>
-                      <li style={{ marginBottom: '12px' }}><strong>Absent</strong>: Employee did not punch in or work any hours on a given day.</li>
-                      <li style={{ marginBottom: '12px' }}><strong>Leave</strong>: Employee has an approved full-day leave request.</li>
-                      <li style={{ marginBottom: '12px' }}><strong>Half Day</strong>: Employee has an approved half-day leave, OR worked less than half the required shift time.</li>
-                      <li style={{ marginBottom: '12px' }}><strong>Missing Punch</strong>: Employee only has a single punch (either In or Out) for the entire day.</li>
-                      <li style={{ marginBottom: '12px' }}><strong>Holiday</strong>: Date is a company-declared holiday.</li>
-                      <li style={{ marginBottom: '12px' }}><strong>Week Off</strong>: Date falls on a weekend.</li>
-                    </ul>
-                  </div>
+                    
+                    {settings.calculation_mode === 'SHIFT_TIMING' ? (
+                      <div style={{ padding: "0", color: '#334155', fontSize: '15px' }}>
+                        <p style={{marginBottom: "15px"}}><em>Attendance depends on when the employee worked, not just total hours.</em></p>
+                        
+                        <h4 style={{marginTop: "10px", marginBottom: "8px"}}>Present</h4>
+                        <ul style={{ paddingLeft: '20px', margin: 0, marginBottom: '15px' }}>
+                          <li>Employee has valid In and Out punches.</li>
+                          <li>Worked the complete shift.</li>
+                          <li>OR employee satisfies the timing rules for approved Half-Day Leave.</li>
+                        </ul>
+                        
+                        <h4 style={{marginTop: "10px", marginBottom: "8px"}}>Absent</h4>
+                        <ul style={{ paddingLeft: '20px', margin: 0, marginBottom: '15px' }}>
+                          <li>No punches.</li>
+                          <li>Checked in after Mid Time.</li>
+                          <li>Checked out before Mid Time.</li>
+                          <li>Working hours are below minimum requirement.</li>
+                        </ul>
 
-                  <div style={styles.card}>
-                    <h3 style={styles.cardTitle}>Modifier Flags</h3>
-                    <hr style={styles.divider} />
-                    <ul style={{ listStyleType: 'none', padding: 0, margin: 0, color: '#334155', fontSize: '15px' }}>
-                      <li style={{ marginBottom: '12px' }}><strong>Overtime</strong>: Employee worked more hours than their required shift duration.</li>
-                      <li style={{ marginBottom: '12px' }}><strong>Late</strong>: Employee's first punch-in was after the expected shift start time + grace period.</li>
-                      <li style={{ marginBottom: '12px' }}><strong>Early Exit</strong>: Employee's last punch-out was before their expected shift end time.</li>
-                      <li style={{ marginBottom: '12px' }}><strong>First Half</strong>: Employee recorded working hours before the halfway mark of their shift.</li>
-                      <li style={{ marginBottom: '12px' }}><strong>Second Half</strong>: Employee recorded working hours after the halfway mark of their shift.</li>
-                      <li style={{ marginBottom: '12px' }}><strong>Hourly Leave</strong>: Employee has an approved hourly leave request on this day.</li>
-                    </ul>
+                        <h4 style={{marginTop: "10px", marginBottom: "8px"}}>Leave Rules</h4>
+                        <ul style={{ paddingLeft: '20px', margin: 0, marginBottom: '15px' }}>
+                          <li><strong>Leave:</strong> Approved Full-Day Leave.</li>
+                          <li><strong>First Half Leave:</strong> Works Second Half. Must check in on or before Mid Time, check out at Shift End (Grace applies at Shift End).</li>
+                          <li><strong>Second Half Leave:</strong> Works First Half. Must check in at Shift Start (Grace applies at Shift Start), check out on or after Mid Time.</li>
+                        </ul>
+
+                        <h4 style={{marginTop: "10px", marginBottom: "8px"}}>Other Statuses</h4>
+                        <ul style={{ paddingLeft: '20px', margin: 0, marginBottom: '15px' }}>
+                          <li><strong>Missing Punch:</strong> Only one punch exists.</li>
+                          <li><strong>Holiday:</strong> Company Holiday.</li>
+                          <li><strong>Week Off:</strong> Configured Weekly Off.</li>
+                        </ul>
+
+                        <h4 style={{marginTop: "10px", marginBottom: "8px"}}>Modifier Flags</h4>
+                        <ul style={{ paddingLeft: '20px', margin: 0, marginBottom: '15px' }}>
+                          <li><strong>Late:</strong> First Punch &gt; Shift Start and &le; Shift Start + Grace.</li>
+                          <li><strong>Early Exit:</strong> Last Punch &lt; Shift End and &ge; Shift End &minus; Grace.</li>
+                          <li><strong>Overtime:</strong> Worked beyond shift duration.</li>
+                          <li><strong>First Half:</strong> Employee was present for the first half (Checked in at Shift Start, Checked out on or after Mid Time).</li>
+                          <li><strong>Second Half:</strong> Employee was present for the second half (Checked in on or before Mid Time, Checked out at Shift End).</li>
+                          <li><strong>Hourly Leave:</strong> Approved Hourly Leave.</li>
+                        </ul>
+                      </div>
+                    ) : (
+                      <div style={{ padding: "0", color: '#334155', fontSize: '15px' }}>
+                        <p style={{marginBottom: "15px"}}><em>Attendance is calculated primarily based on total working hours.</em></p>
+                        
+                        <h4 style={{marginTop: "10px", marginBottom: "8px"}}>Present</h4>
+                        <ul style={{ paddingLeft: '20px', margin: 0, marginBottom: '15px' }}>
+                          <li>Employee has valid In and Out punches.</li>
+                          <li>Worked &ge; Shift Duration (considering grace time).</li>
+                          <li>OR worked &ge; Mid Working Hours if approved Half-Day Leave exists.</li>
+                        </ul>
+                        
+                        <h4 style={{marginTop: "10px", marginBottom: "8px"}}>Absent</h4>
+                        <ul style={{ paddingLeft: '20px', margin: 0, marginBottom: '15px' }}>
+                          <li>No punches.</li>
+                          <li>Working hours are less than Mid Working Hours.</li>
+                          <li>Leave request is rejected or unavailable.</li>
+                        </ul>
+
+                        <h4 style={{marginTop: "10px", marginBottom: "8px"}}>Leave Rules</h4>
+                        <ul style={{ paddingLeft: '20px', margin: 0, marginBottom: '15px' }}>
+                          <li><strong>Leave:</strong> Approved Full-Day Leave.</li>
+                          <li><strong>Half Day:</strong> Employee has an approved Half-Day Leave and worked &ge; Mid Working Hours but &lt; Full Shift Duration.</li>
+                          <li><em>Grace applies:</em> First Half Leave &rarr; Check-in grace. Second Half Leave &rarr; Check-out grace.</li>
+                        </ul>
+
+                        <h4 style={{marginTop: "10px", marginBottom: "8px"}}>Other Statuses</h4>
+                        <ul style={{ paddingLeft: '20px', margin: 0, marginBottom: '15px' }}>
+                          <li><strong>Missing Punch:</strong> Only one punch exists for the day.</li>
+                          <li><strong>Holiday:</strong> Company Holiday.</li>
+                          <li><strong>Week Off:</strong> Configured Weekly Off.</li>
+                        </ul>
+
+                        <h4 style={{marginTop: "10px", marginBottom: "8px"}}>Modifier Flags</h4>
+                        <ul style={{ paddingLeft: '20px', margin: 0, marginBottom: '15px' }}>
+                          <li><strong>Late:</strong> First Punch &gt; Shift Start and &le; Shift Start + Grace.</li>
+                          <li><strong>Early Exit:</strong> Last Punch &lt; Shift End and &ge; Shift End &minus; Grace.</li>
+                          <li><strong>Overtime:</strong> Worked more than required shift duration.</li>
+                          <li><strong>First Half:</strong> Employee worked only in the first half of the shift. (Informational)</li>
+                          <li><strong>Second Half:</strong> Employee worked only in the second half of the shift. (Informational)</li>
+                          <li><strong>Hourly Leave:</strong> Approved Hourly Leave.</li>
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

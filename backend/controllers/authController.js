@@ -48,6 +48,10 @@ exports.login = async (req, res) => {
     // Generate Token
     const token = jwt.sign({ id: user.rows[0].id, role_id: user.rows[0].role_id }, JWT_SECRET, { expiresIn: "1h" });
 
+    // Check if user is a manager (has any subordinates)
+    const mgrCheck = await pool.query("SELECT 1 FROM employees WHERE manager_id = $1 LIMIT 1", [user.rows[0].id]);
+    const is_manager = mgrCheck.rows.length > 0;
+
     res.json({ 
       token, 
       user: { 
@@ -56,7 +60,8 @@ exports.login = async (req, res) => {
         role_id: user.rows[0].role_id,
         employee_code: user.rows[0].employee_code,
         email: user.rows[0].email,
-        department_id: user.rows[0].department_id
+        department_id: user.rows[0].department_id,
+        is_manager
       } 
     });
   } catch (err) {

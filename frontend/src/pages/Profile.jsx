@@ -17,9 +17,20 @@ const Profile = () => {
   const [showBalanceModal, setShowBalanceModal] = useState(false);
   const [balanceForm, setBalanceForm] = useState({ leave_type_id: "", action_type: "CARRY_FORWARD", days: "" });
 
+  const [managerName, setManagerName] = useState("");
+
   useEffect(() => {
     fetchBalances();
+    if (!isSuperAdmin) fetchManager();
   }, []);
+
+  const fetchManager = async () => {
+    try {
+      const res = await API.get("/employees");
+      const me = res.data.find(emp => emp.id === user.id);
+      if (me) setManagerName(me.manager_name || "Admin");
+    } catch (err) { console.error("Failed to fetch manager"); }
+  };
 
   const fetchBalances = async () => {
     try {
@@ -84,6 +95,9 @@ const Profile = () => {
                 <div style={styles.infoRow}><span>Employee ID</span> <strong>{user.employee_code || "N/A"}</strong></div>
                 <div style={styles.infoRow}><span>Role</span> <span style={styles.badge}>{user.role_id === 1 ? "Admin" : "Employee"}</span></div>
                 <div style={styles.infoRow}><span>Email</span> <strong>{user.email || "Not provided"}</strong></div>
+                {!isSuperAdmin && (
+                  <div style={styles.infoRow}><span>Manager</span> <strong>{managerName || "Loading..."}</strong></div>
+                )}
               </div>
             </div>
 

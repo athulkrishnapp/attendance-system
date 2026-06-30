@@ -1,6 +1,7 @@
 const pool = require("../db");
 const xlsx = require("xlsx");
 const fs = require("fs");
+const ruleEngine = require("../utils/ruleEngine");
 
 exports.uploadAttendance = async (req, res) => {
   try {
@@ -163,81 +164,43 @@ exports.uploadAttendance = async (req, res) => {
       const gracePeriod = empInfo?.grace_period_minutes !== null && empInfo?.grace_period_minutes !== undefined ? empInfo.grace_period_minutes : settings.grace_period_minutes;
       const requiredHours = empInfo?.required_working_hours !== null && empInfo?.required_working_hours !== undefined ? parseFloat(empInfo.required_working_hours) : parseFloat(settings.required_working_hours);
 
-      // Determine Status
-      let core_status = 'PRESENT';
-      let modifier_flags = [];
-
-      if (record.scans.length === 1) core_status = 'MISSING_PUNCH';
-      else if (workingHours === 0) core_status = 'ABSENT';
-
-      // Apply Overrides
-      if (isWeekend) {
-        core_status = 'WEEKEND';
-        if (workingHours > 0) modifier_flags.push('WEEKEND_WORK');
-      } else if (holidayName) {
-        core_status = 'HOLIDAY';
-        if (workingHours > 0) modifier_flags.push('HOLIDAY_WORK');
-      }
-
-      // Apply Leaves
       const approvedLeave = leaveMap[record.employee_id]?.[record.attendance_date];
+
+      const [shiftHr, shiftMin] = shiftStartTime.split(':').map(Number);
+      const [logicalYear, logicalMonth, logicalDay] = record.attendance_date.split('-').map(Number);
       
-      if (approvedLeave) {
-        if (approvedLeave.duration === 'Full Day') {
-          core_status = 'LEAVE';
-        } else if (approvedLeave.duration === 'Hourly') {
-          modifier_flags.push('HOURLY_LEAVE');
-        } else if (approvedLeave.duration === 'Half Day') {
-          core_status = 'HALF_DAY';
-          if (approvedLeave.leave_portion === 'FIRST_HALF') modifier_flags.push('HALF_DAY_FN');
-          if (approvedLeave.leave_portion === 'SECOND_HALF') modifier_flags.push('HALF_DAY_AN');
-        }
+      const expectedStartDate = new Date(logicalYear, logicalMonth - 1, logicalDay, shiftHr, shiftMin, 0);
+      const maxGraceDate = new Date(expectedStartDate.getTime() + (gracePeriod * 60000));
+      
+      const shiftEndHrStr = empInfo?.shift_end_time || settings.shift_end_time || '18:00:00';
+      const [shiftEndHr, shiftEndMin] = shiftEndHrStr.split(':').map(Number);
+      const expectedEndDate = new Date(logicalYear, logicalMonth - 1, logicalDay, shiftEndHr, shiftEndMin, 0);
+      
+      const halfDayThreshold = empInfo?.half_day_mark_time || '13:00:00';
+      const [halfHr, halfMin] = halfDayThreshold.split(':').map(Number);
+      const halfDayThresholdDate = new Date(logicalYear, logicalMonth - 1, logicalDay, halfHr, halfMin, 0);
+      
+      if (halfDayThresholdDate < expectedStartDate) {
+          halfDayThresholdDate.setDate(halfDayThresholdDate.getDate() + 1);
+      }
+      if (expectedEndDate < expectedStartDate) {
+          expectedEndDate.setDate(expectedEndDate.getDate() + 1);
       }
 
-      if (core_status === 'PRESENT') {
-        const [shiftHr, shiftMin] = shiftStartTime.split(':').map(Number);
-        const [logicalYear, logicalMonth, logicalDay] = record.attendance_date.split('-').map(Number);
-        
-        const expectedStartDate = new Date(logicalYear, logicalMonth - 1, logicalDay, shiftHr, shiftMin, 0);
-        const maxGraceDate = new Date(expectedStartDate.getTime() + (gracePeriod * 60000));
-        
-        const shiftEndHrStr = empInfo?.shift_end_time || settings.shift_end_time || '18:00:00';
-        const [shiftEndHr, shiftEndMin] = shiftEndHrStr.split(':').map(Number);
-        const expectedEndDate = new Date(logicalYear, logicalMonth - 1, logicalDay, shiftEndHr, shiftEndMin, 0);
-        
-        const halfDayThreshold = empInfo?.half_day_mark_time || '13:00:00';
-        const [halfHr, halfMin] = halfDayThreshold.split(':').map(Number);
-        const halfDayThresholdDate = new Date(logicalYear, logicalMonth - 1, logicalDay, halfHr, halfMin, 0);
-        
-        if (halfDayThresholdDate < expectedStartDate) {
-            halfDayThresholdDate.setDate(halfDayThresholdDate.getDate() + 1);
-        }
-        if (expectedEndDate < expectedStartDate) {
-            expectedEndDate.setDate(expectedEndDate.getDate() + 1);
-        }
-
-        const halfRequiredHours = requiredHours / 2;
-        
-        if (workingHours < halfRequiredHours) {
-            core_status = 'HALF_DAY';
-        } else if (firstIn >= halfDayThresholdDate || lastOut <= halfDayThresholdDate) {
-            core_status = 'HALF_DAY';
-        } else {
-            if (firstIn > maxGraceDate) modifier_flags.push('LATE');
-            if (workingHours > requiredHours) modifier_flags.push('OVERTIME');
-            if (lastOut < expectedEndDate) modifier_flags.push('EARLY_EXIT');
-        }
-
-        // Flag for which half they worked, ONLY if it's a half day
-        if (core_status === 'HALF_DAY' && workingHours > 0) {
-            if (lastOut <= halfDayThresholdDate) modifier_flags.push('FIRST_HALF');
-            else if (firstIn >= halfDayThresholdDate) modifier_flags.push('SECOND_HALF');
-            else {
-                modifier_flags.push('FIRST_HALF');
-                modifier_flags.push('SECOND_HALF');
-            }
-        }
-      }
+      const mode = settings.calculation_mode || 'WORKING_HOURS';
+      const { core_status, modifier_flags } = ruleEngine.calculateAttendance(mode, {
+          firstIn, 
+          lastOut, 
+          workingHours, 
+          expectedStartDate, 
+          expectedEndDate, 
+          halfDayThresholdDate, 
+          maxGraceDate, 
+          requiredHours, 
+          isWeekend, 
+          holidayName, 
+          approvedLeave
+      });
 
       await pool.query(`
         INSERT INTO attendance_summary 
@@ -298,19 +261,30 @@ exports.requestRegularization = async (req, res) => {
   }
 };
 
-exports.getPendingRegularizations = async (req, res) => {
+exports.getAllRegularizations = async (req, res) => {
   try {
+    const { requester_id, is_super_admin } = req.query;
+    let queryParams = [];
+    let whereClause = "";
+
+    if (is_super_admin !== 'true' && requester_id) {
+      whereClause = "WHERE e.manager_id = $1 OR (r.forwarded_by_id IS NOT NULL AND m.manager_id = $1)";
+      queryParams.push(requester_id);
+    }
+
     const result = await pool.query(`
-      SELECT r.*, e.name as employee_name, e.employee_code, m.name as forwarded_by_name
+      SELECT r.*, e.name as employee_name, e.employee_code, m.name as forwarded_by_name,
+             e.manager_id as employee_manager_id,
+             m.manager_id as forwarder_manager_id
       FROM regularization_requests r
       JOIN employees e ON r.employee_id = e.id
       LEFT JOIN employees m ON r.forwarded_by_id = m.id
-      WHERE r.status IN ('PENDING_MANAGER', 'PENDING_ADMIN', 'PENDING')
+      ${whereClause}
       ORDER BY r.applied_on ASC
-    `);
+    `, queryParams);
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: "Failed to fetch pending regularizations." });
+    res.status(500).json({ error: "Failed to fetch regularizations." });
   }
 };
 
@@ -383,9 +357,18 @@ exports.forwardRegularization = async (req, res) => {
   try {
     const { id } = req.params;
     const { manager_id, attendance_summary_id } = req.body;
-    await pool.query("UPDATE regularization_requests SET status = 'PENDING_ADMIN', forwarded_by_id = $1 WHERE id = $2", [manager_id, id]);
-    await pool.query("UPDATE attendance_summary SET regularization_status = 'PENDING_ADMIN' WHERE id = $1", [attendance_summary_id]);
-    res.json({ message: "Regularization forwarded to Admin successfully." });
+
+    const mgrResult = await pool.query("SELECT manager_id FROM employees WHERE id = $1", [manager_id]);
+    const nextManagerId = mgrResult.rows[0]?.manager_id;
+    
+    let newStatus = 'PENDING_MANAGER';
+    if (!nextManagerId || nextManagerId === 1) {
+      newStatus = 'PENDING_ADMIN';
+    }
+
+    await pool.query("UPDATE regularization_requests SET status = $1, forwarded_by_id = $2 WHERE id = $3", [newStatus, manager_id, id]);
+    await pool.query("UPDATE attendance_summary SET regularization_status = $1 WHERE id = $2", [newStatus, attendance_summary_id]);
+    res.json({ message: "Regularization forwarded successfully." });
   } catch (err) {
     res.status(500).json({ error: "Failed to forward regularization" });
   }

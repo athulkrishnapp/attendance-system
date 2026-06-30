@@ -6,6 +6,7 @@ const Sidebar = () => {
   const user = userString ? JSON.parse(userString) : null;
   const isAdmin = user?.role_id === 1;
   const isSuperAdmin = user?.id === 1 || !user?.department_id;
+  const isManager = user?.is_manager;
 
   const isActive = (path) => location.pathname === path;
 
@@ -27,11 +28,19 @@ const Sidebar = () => {
             {!isSuperAdmin && <div style={{ height: "16px" }}></div>}
             <Link to="/employees" style={isActive("/employees") ? styles.activeLink : styles.link}>Manage Staff</Link>
             <Link to="/attendance" style={isActive("/attendance") ? styles.activeLink : styles.link}>Master Reports</Link>
-            <Link to="/approvals" style={isActive("/approvals") ? styles.activeLink : styles.link}>Leave Approvals</Link>
-            <Link to="/regularizations" style={isActive("/regularizations") ? styles.activeLink : styles.link}>Regularizations</Link>
+            <Link to="/approvals" style={isActive("/approvals") ? styles.activeLink : styles.link}>Approvals Inbox</Link>
             <Link to="/settings" style={isActive("/settings") ? styles.activeLink : styles.link}>Settings</Link>
           </>
         )}
+        {!isAdmin && isManager && (
+          <>
+            <div style={{ height: "16px" }}></div>
+            <Link to="/approvals" style={isActive("/approvals") ? styles.activeLink : styles.link}>Team Approvals</Link>
+          </>
+        )}
+        <div style={{ marginTop: "auto" }}>
+          <Link to="/leave-policy" style={isActive("/leave-policy") ? styles.activeLink : styles.link}>Company Leave Policy</Link>
+        </div>
       </nav>
     </div>
   );

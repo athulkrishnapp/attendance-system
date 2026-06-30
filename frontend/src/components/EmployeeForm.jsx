@@ -83,7 +83,11 @@ const EmployeeForm = ({ formData, handleInputChange, handleSubmit, handleCancel,
               <option value="">-- Select Manager {formData.id === 1 ? '(Optional)' : '(Required)'} --</option>
               {managers
                 .filter(m => !isEditing || m.employee_code !== formData.employee_code)
-                .map(m => <option key={m.id} value={m.id}>{m.name} ({m.employee_code})</option>)}
+                .map(m => {
+                  const levelName = levels.find(l => l.id === m.level_id)?.level_name || 'No Level';
+                  const deptName = departments.find(d => d.id === m.department_id)?.department_name || 'No Dept';
+                  return <option key={m.id} value={m.id}>{m.name} - {m.employee_code} ({levelName}, {deptName})</option>
+                })}
             </select>
           </>
         )}

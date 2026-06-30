@@ -8,6 +8,7 @@ import EmployeeForm from "../components/EmployeeForm";
 const EmployeeManagement = () => {
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
+  const [levels, setLevels] = useState([]);
   const [shifts, setShifts] = useState([]);
   const [filterDepartment, setFilterDepartment] = useState("");
   const [filterShift, setFilterShift] = useState("");
@@ -39,12 +40,14 @@ const EmployeeManagement = () => {
 
   const fetchSettings = async () => {
     try {
-      const [depRes, shiftRes] = await Promise.all([
+      const [depRes, shiftRes, levelRes] = await Promise.all([
         API.get("/settings/departments"),
-        API.get("/settings/shifts")
+        API.get("/settings/shifts"),
+        API.get("/settings/levels")
       ]);
       setDepartments(depRes.data);
       setShifts(shiftRes.data);
+      setLevels(levelRes.data);
     } catch (err) { console.error(err); }
   };
 
@@ -152,6 +155,7 @@ const EmployeeManagement = () => {
                   <tr>
                     <th style={styles.th}>Code</th>
                     <th style={styles.th}>Name</th>
+                    <th style={styles.th}>Level</th>
                     <th style={styles.th}>Department</th>
                     <th style={styles.th}>Shift</th>
                     <th style={styles.th}>Role</th>
@@ -166,6 +170,7 @@ const EmployeeManagement = () => {
                         {emp.name}<br/>
                         <span style={{fontSize:'12px', color:'#64748b'}}>{emp.email}</span>
                       </td>
+                      <td style={styles.td}>{levels.find(l => l.id === emp.level_id)?.level_name || "-"}</td>
                       <td style={styles.td}>{departments.find(d => d.id === emp.department_id)?.department_name || "-"}</td>
                       <td style={styles.td}>{shifts.find(s => s.id === emp.shift_id)?.shift_name || "-"}</td>
                       <td style={styles.td}>

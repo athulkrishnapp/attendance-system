@@ -11,7 +11,7 @@ router.post("/upload", upload.single("file"), attendanceController.uploadAttenda
 
 // Regularization Workflow
 router.post("/regularize", attendanceController.requestRegularization);
-router.get("/regularize/pending", attendanceController.getPendingRegularizations);
+router.get("/regularize/pending", attendanceController.getAllRegularizations);
 router.put("/regularize/:id/process", attendanceController.processRegularization);
 router.put("/regularize/:id/forward", attendanceController.forwardRegularization);
 router.get('/calendar/:month', attendanceController.getCalendarStatus);

@@ -164,14 +164,14 @@ const RequestLeave = () => {
                 )}
                 
                 {selectedType && selectedType.min_advance_notice_days > 0 && (
-                  <div style={styles.infoBanner}>
-                    Note: This leave type must be requested at least <strong>{selectedType.min_advance_notice_days} days</strong> in advance.
+                  <div style={styles.purpleBanner}>
+                    <strong>Note:</strong> This leave type should ideally be requested at least " <strong>{selectedType.min_advance_notice_days} days" </strong> in advance.
                   </div>
                 )}
                 
                 {leaveForm.start_date && new Date(leaveForm.start_date).setHours(0,0,0,0) < new Date(minStartDateFormatted).setHours(0,0,0,0) && (
                   <div style={styles.warningBanner}>
-                    <strong>Soft Warning:</strong> You are requesting leave without the standard notice period. Your manager will be notified and this may affect approval.
+                    <strong>Warning:</strong> You are requesting leave without the standard notice period. Your manager will be notified and this may affect approval.
                   </div>
                 )}
 
@@ -195,7 +195,7 @@ const RequestLeave = () => {
                         onChange={e => setLeaveForm({...leaveForm, start_date: e.target.value})} 
                         required 
                         style={styles.input} 
-                        min={minStartDateFormatted} 
+                        min={todayFormatted} 
                       />
                     </div>
                     <div style={{flex: 1}}>
@@ -206,7 +206,7 @@ const RequestLeave = () => {
                         onChange={e => setLeaveForm({...leaveForm, end_date: e.target.value})} 
                         required 
                         style={styles.input} 
-                        min={leaveForm.start_date || minStartDateFormatted} 
+                        min={leaveForm.start_date || todayFormatted} 
                       />
                     </div>
                   </div>
@@ -340,6 +340,7 @@ const styles = {
   cardBodyTable: { padding: "0" }, 
 
   infoBanner: { backgroundColor: "#eff6ff", color: "#1e3a8a", padding: "12px 16px", borderRadius: "8px", border: "1px solid #bfdbfe", fontSize: "14px", marginBottom: "10px", display: "flex", alignItems: "center" },
+  purpleBanner: { backgroundColor: "#f3e8ff", color: "#6b21a8", padding: "12px 16px", borderRadius: "8px", border: "1px solid #d8b4fe", fontSize: "14px", marginBottom: "10px", display: "flex", alignItems: "center" },
   warningBanner: { backgroundColor: "#fffbeb", color: "#b45309", padding: "12px 16px", borderRadius: "8px", border: "1px solid #fde68a", fontSize: "14px", marginBottom: "20px", display: "flex", alignItems: "center" },
   form: { display: "flex", flexDirection: "column", gap: "18px" },
   label: { fontSize: "14px", fontWeight: "600", color: "#475569", marginBottom: "6px", display: "block" },

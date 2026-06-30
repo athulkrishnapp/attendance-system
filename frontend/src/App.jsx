@@ -7,10 +7,10 @@ import EmployeeProfile from "./pages/EmployeeProfile";
 import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound";
 import Settings from "./pages/Settings";
-import LeaveApprovals from "./pages/LeaveApprovals"; 
-import RegularizationApprovals from "./pages/RegularizationApprovals";
+import ApprovalsInbox from "./pages/ApprovalsInbox";
 import SwipeReports from "./pages/SwipeReports"; 
 import RequestLeave from "./pages/RequestLeave"; 
+import LeavePolicy from "./pages/LeavePolicy";
 
 function App() {
   return (
@@ -21,9 +21,9 @@ function App() {
         <Route path="/employees" element={<EmployeeManagement />} />
         <Route path="/employees/:id/profile" element={<EmployeeProfile />} />
         <Route path="/attendance" element={<AttendanceReport />} />
-        <Route path="/approvals" element={<LeaveApprovals />} /> 
-        <Route path="/regularizations" element={<RegularizationApprovals />} />
+        <Route path="/approvals" element={<ApprovalsInbox />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/leave-policy" element={<LeavePolicy />} />
         
         {/* New Employee Routes */}
         <Route path="/swipe-reports" element={<SwipeReports />} />
