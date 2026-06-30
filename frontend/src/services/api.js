@@ -16,7 +16,10 @@ API.interceptors.request.use((req) => {
 export default API;
 
 export const api = {
-  // Settings API
+  settings: {
+    get: () => API.get("/settings"),
+    update: (data) => API.put("/settings", data),
+  },
   shifts: {
     getAll: () => API.get("/settings/shifts"),
     create: (data) => API.post("/settings/shifts", data),

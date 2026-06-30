@@ -23,17 +23,25 @@ const Settings = () => {
   const [newDepartment, setNewDepartment] = useState({ department_name: "", max_concurrent_leaves: 0 });
   const [editingDepartmentId, setEditingDepartmentId] = useState(null);
 
+  const [filterDepartmentId, setFilterDepartmentId] = useState("");
+  const [filterShiftId, setFilterShiftId] = useState("");
+
   const [levels, setLevels] = useState([]);
   const [newLevel, setNewLevel] = useState({ level_name: "" });
   const [editingLevelId, setEditingLevelId] = useState(null);
 
   const [leaveTypes, setLeaveTypes] = useState([]);
-  const [newLeaveType, setNewLeaveType] = useState({ name: "", min_advance_notice_days: 0, requires_documentation: false, max_consecutive_days: 0, is_active: true });
+  const [newLeaveType, setNewLeaveType] = useState({ name: "", min_advance_notice_days: 0, requires_documentation: false, max_consecutive_days: 0, is_active: true, is_encashable: false, is_carry_forwardable: false });
   const [editingLeaveTypeId, setEditingLeaveTypeId] = useState(null);
 
   const [leaveEntitlements, setLeaveEntitlements] = useState([]);
   const [selectedLeaveTypeId, setSelectedLeaveTypeId] = useState("");
   const [quotaInputs, setQuotaInputs] = useState({});
+
+  // Custom Leaves State
+  const [employees, setEmployees] = useState([]);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
+  const [customLeaveInputs, setCustomLeaveInputs] = useState({});
 
   useEffect(() => {
     fetchData();
@@ -52,13 +60,14 @@ const Settings = () => {
 
   const fetchData = async () => {
     try {
-      const [settingsRes, shiftsRes, deptRes, levelsRes, leaveTypesRes, leaveEntRes] = await Promise.all([
+      const [settingsRes, shiftsRes, deptRes, levelsRes, leaveTypesRes, leaveEntRes, empRes] = await Promise.all([
         API.get("/settings"),
         api.shifts.getAll(),
         api.departments.getAll(),
         api.levels.getAll(),
         api.leaveTypes.getAll(),
-        api.leaveEntitlements.getAll()
+        api.leaveEntitlements.getAll(),
+        API.get("/employees")
       ]);
       
       if (settingsRes.data.settings) setSettings(settingsRes.data.settings);
@@ -69,6 +78,7 @@ const Settings = () => {
       setLevels(levelsRes.data);
       setLeaveTypes(leaveTypesRes.data);
       setLeaveEntitlements(leaveEntRes.data);
+      setEmployees(empRes.data);
     } catch (err) {
       console.error(err);
       showMessage("Failed to load settings data", "error");
@@ -238,7 +248,9 @@ const Settings = () => {
       setNewLevel({ level_name: "" });
       setEditingLevelId(null);
       fetchData();
-    } catch (err) { showMessage("Failed to save level.", "error"); }
+    } catch (err) { 
+      showMessage(err.response?.data?.error || "Failed to save level.", "error"); 
+    }
   };
 
   const handleEditLevel = (lvl) => {
@@ -265,7 +277,7 @@ const Settings = () => {
         await api.leaveTypes.create(newLeaveType);
         showMessage("Leave Type added.", "success");
       }
-      setNewLeaveType({ name: "", min_advance_notice_days: 0, requires_documentation: false, max_consecutive_days: 0, is_active: true });
+      setNewLeaveType({ name: "", min_advance_notice_days: 0, requires_documentation: false, max_consecutive_days: 0, is_active: true, is_encashable: false, is_carry_forwardable: false });
       setEditingLeaveTypeId(null);
       fetchData();
     } catch (err) { showMessage("Failed to save leave type.", "error"); }
@@ -306,6 +318,65 @@ const Settings = () => {
     }
   };
 
+  const loadCustomLeaves = async (empId) => {
+    setSelectedEmployeeId(empId);
+    if (!empId) {
+      setCustomLeaveInputs({});
+      return;
+    }
+    try {
+      const res = await API.get(`/settings/custom-leaves/${empId}`);
+      const newInputs = {};
+      res.data.forEach(cl => {
+        newInputs[cl.leave_type_id] = parseFloat(cl.allocated_days);
+      });
+      setCustomLeaveInputs(newInputs);
+    } catch (err) {
+      showMessage("Failed to load custom leaves", "error");
+    }
+  };
+
+  const closeCustomLeaves = () => {
+    setSelectedEmployeeId("");
+    setCustomLeaveInputs({});
+  };
+
+  // Group employees for the custom leave dropdown
+  const currentUser = JSON.parse(localStorage.getItem("user")) || {};
+  const isSuperAdmin = currentUser.id === 1 || !currentUser.department_id;
+  
+  let customLeaveEmployees = employees.filter(emp => {
+    if (isSuperAdmin) return emp.id !== 1;
+    return emp.id !== 1 && emp.id !== currentUser.id && emp.role_id !== 1;
+  });
+
+  if (filterDepartmentId) {
+    customLeaveEmployees = customLeaveEmployees.filter(emp => emp.department_id === parseInt(filterDepartmentId));
+  }
+  if (filterShiftId) {
+    customLeaveEmployees = customLeaveEmployees.filter(emp => emp.shift_id === parseInt(filterShiftId));
+  }
+
+  const handleSaveCustomLeaves = async (e) => {
+    e.preventDefault();
+    if (!selectedEmployeeId) return;
+    
+    const allocations = Object.keys(customLeaveInputs).map(leave_type_id => ({
+      leave_type_id: parseInt(leave_type_id),
+      allocated_days: parseFloat(customLeaveInputs[leave_type_id])
+    })).filter(a => !isNaN(a.allocated_days));
+    
+    try {
+      await API.post("/settings/custom-leaves", {
+        employee_id: selectedEmployeeId,
+        allocations
+      });
+      showMessage("Custom leave allocations saved.", "success");
+    } catch (err) {
+      showMessage("Failed to save custom leaves.", "error");
+    }
+  };
+
   return (
     <div style={styles.layout}>
       <Sidebar />
@@ -331,7 +402,7 @@ const Settings = () => {
               <button onClick={() => setActiveTab("departments")} style={activeTab === "departments" ? styles.tabActive : styles.tabInactive}>Departments</button>
               <button onClick={() => setActiveTab("levels")} style={activeTab === "levels" ? styles.tabActive : styles.tabInactive}>Hierarchy Levels</button>
               <button onClick={() => setActiveTab("leave_types")} style={activeTab === "leave_types" ? styles.tabActive : styles.tabInactive}>Leave Types</button>
-              <button onClick={() => setActiveTab("entitlements")} style={activeTab === "entitlements" ? styles.tabActive : styles.tabInactive}>Leave Entitlements</button>
+              <button onClick={() => setActiveTab("entitlements")} style={activeTab === "entitlements" ? styles.tabActive : styles.tabInactive}>Leave Allocations</button>
             </div>
 
             <div style={styles.tabContent}>
@@ -606,9 +677,23 @@ const Settings = () => {
                       </label>
                     </div>
 
+                    <div style={styles.formGroup}>
+                      <label style={{...styles.formLabel, cursor: 'pointer'}}>
+                        <input type="checkbox" checked={newLeaveType.is_encashable} onChange={(e) => setNewLeaveType({...newLeaveType, is_encashable: e.target.checked})} style={{width: '18px', height: '18px'}} /> 
+                        Allow Encashment (Redeem)
+                      </label>
+                    </div>
+
+                    <div style={styles.formGroup}>
+                      <label style={{...styles.formLabel, cursor: 'pointer'}}>
+                        <input type="checkbox" checked={newLeaveType.is_carry_forwardable} onChange={(e) => setNewLeaveType({...newLeaveType, is_carry_forwardable: e.target.checked})} style={{width: '18px', height: '18px'}} /> 
+                        Allow Carry Forward
+                      </label>
+                    </div>
+
                     <div style={styles.formActionRow}>
                       {editingLeaveTypeId && (
-                        <button type="button" onClick={() => { setNewLeaveType({ name: "", min_advance_notice_days: 0, requires_documentation: false, max_consecutive_days: 0, is_active: true }); setEditingLeaveTypeId(null); }} style={{...styles.btnPrimary, backgroundColor: "#64748b", marginRight: "10px"}}>Cancel Edit</button>
+                        <button type="button" onClick={() => { setNewLeaveType({ name: "", min_advance_notice_days: 0, requires_documentation: false, max_consecutive_days: 0, is_active: true, is_encashable: false, is_carry_forwardable: false }); setEditingLeaveTypeId(null); }} style={{...styles.btnPrimary, backgroundColor: "#64748b", marginRight: "10px"}}>Cancel Edit</button>
                       )}
                       <button type="submit" style={styles.btnPrimary}>{editingLeaveTypeId ? "Update Leave Type" : "Create Leave Type"}</button>
                     </div>
@@ -617,7 +702,7 @@ const Settings = () => {
                   {leaveTypes.length > 0 && (
                     <table style={{...styles.table, marginTop: '20px'}}>
                       <thead>
-                        <tr><th style={styles.th}>Leave Category</th><th style={styles.th}>Notice Rules</th><th style={styles.th}>Max Block</th><th style={styles.th}>Docs Needed</th><th style={styles.th}>Actions</th></tr>
+                        <tr><th style={styles.th}>Leave Category</th><th style={styles.th}>Notice Rules</th><th style={styles.th}>Max Block</th><th style={styles.th}>Docs Needed</th><th style={styles.th}>Encash / Carry Fwd</th><th style={styles.th}>Actions</th></tr>
                       </thead>
                       <tbody>
                         {leaveTypes.map(lt => (
@@ -626,6 +711,11 @@ const Settings = () => {
                             <td style={styles.td}>{lt.min_advance_notice_days} days prior</td>
                             <td style={styles.td}>{lt.max_consecutive_days} days</td>
                             <td style={styles.td}>{lt.requires_documentation ? 'Yes' : 'No'}</td>
+                            <td style={styles.td}>
+                              {lt.is_encashable && <span style={{display:'block', fontSize:'12px', color:'#16a34a'}}>Encashable</span>}
+                              {lt.is_carry_forwardable && <span style={{display:'block', fontSize:'12px', color:'#2563eb'}}>Carry Fwd</span>}
+                              {!lt.is_encashable && !lt.is_carry_forwardable && <span style={{color:'#94a3b8'}}>-</span>}
+                            </td>
                             <td style={styles.td}>
                               <button onClick={() => handleEditLeaveType(lt)} style={{...styles.textBtnDelete, color: "#2563eb", backgroundColor: "#eff6ff", marginRight: "10px"}}>Edit</button>
                               <button onClick={() => handleDeleteLeaveType(lt.id)} style={styles.textBtnDelete}>Delete</button>
@@ -698,8 +788,85 @@ const Settings = () => {
                       Please select a Leave Category from the dropdown above to manage quotas.
                     </div>
                   )}
+                  
+                  <div style={{ marginTop: '40px' }}>
+                    <h3 style={styles.cardTitle}>Custom Leave Allocation</h3>
+                    <p style={styles.cardDesc}>Override standard leave quotas for specific employees.</p>
+                    <hr style={styles.divider} />
+                    
+                    <div style={{ display: 'flex', gap: '20px', marginBottom: "30px", flexWrap: 'wrap' }}>
+                      <div style={{ flex: 1, minWidth: '200px' }}>
+                        <label style={styles.formLabel}>Filter by Department:</label>
+                        <select value={filterDepartmentId} onChange={(e) => { setFilterDepartmentId(e.target.value); setSelectedEmployeeId(""); setCustomLeaveInputs({}); }} style={styles.formInput}>
+                          <option value="">All Departments</option>
+                          {departments.map(d => <option key={d.id} value={d.id}>{d.department_name}</option>)}
+                        </select>
+                      </div>
+
+                      <div style={{ flex: 1, minWidth: '200px' }}>
+                        <label style={styles.formLabel}>Filter by Shift:</label>
+                        <select value={filterShiftId} onChange={(e) => { setFilterShiftId(e.target.value); setSelectedEmployeeId(""); setCustomLeaveInputs({}); }} style={styles.formInput}>
+                          <option value="">All Shifts</option>
+                          {shifts.map(s => <option key={s.id} value={s.id}>{s.shift_name}</option>)}
+                        </select>
+                      </div>
+
+                      <div style={{ flex: 2, minWidth: '250px' }}>
+                        <label style={styles.formLabel}>Select Employee:</label>
+                        <select value={selectedEmployeeId} onChange={(e) => loadCustomLeaves(e.target.value)} style={styles.formInput}>
+                          <option value="">-- Choose Employee --</option>
+                          {customLeaveEmployees.map(emp => (
+                            <option key={emp.id} value={emp.id}>{emp.name} ({emp.employee_code}) - {emp.level_name || 'No Level'}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {selectedEmployeeId && (
+                      <form onSubmit={handleSaveCustomLeaves}>
+                        <table style={styles.table}>
+                          <thead>
+                            <tr>
+                              <th style={styles.th}>Leave Category</th>
+                              <th style={styles.th}>Custom Quota</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {leaveTypes.map(lt => {
+                              const selectedEmp = employees.find(e => e.id === parseInt(selectedEmployeeId));
+                              const empLevelId = selectedEmp?.level_id;
+                              const defaultEntitlement = leaveEntitlements.find(le => le.level_id === empLevelId && le.leave_type_id === lt.id);
+                              const placeholderValue = defaultEntitlement ? defaultEntitlement.annual_quota : "0";
+                              
+                              return (
+                                <tr key={lt.id} style={styles.tr}>
+                                  <td style={styles.td}><strong>{lt.name}</strong></td>
+                                  <td style={styles.td}>
+                                    <input 
+                                      type="number" 
+                                      min="0" 
+                                      step="0.5"
+                                      placeholder={`Default: ${placeholderValue}`}
+                                      value={customLeaveInputs[lt.id] !== undefined ? customLeaveInputs[lt.id] : ""} 
+                                      onChange={(e) => setCustomLeaveInputs({...customLeaveInputs, [lt.id]: e.target.value})} 
+                                      style={{...styles.formInput, width: "200px"}} 
+                                    />
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </tbody>
+                      </table>
+                      <div style={{...styles.formActionRow, gap: "10px"}}>
+                        <button type="button" onClick={closeCustomLeaves} style={{...styles.btnPrimary, backgroundColor: "#64748b"}}>Close / Cancel</button>
+                        <button type="submit" style={styles.btnPrimary}>Save Custom Allocations</button>
+                      </div>
+                      </form>
+                    )}
+                  </div>
                 </div>
               )}
+
 
             </div>
           </div>
@@ -708,6 +875,9 @@ const Settings = () => {
     </div>
   );
 };
+
+
+
 
 // Simplified and Standardized Styles
 const styles = {

@@ -5,6 +5,7 @@ const Sidebar = () => {
   const userString = localStorage.getItem("user");
   const user = userString ? JSON.parse(userString) : null;
   const isAdmin = user?.role_id === 1;
+  const isSuperAdmin = user?.id === 1 || !user?.department_id;
 
   const isActive = (path) => location.pathname === path;
 
@@ -12,7 +13,7 @@ const Sidebar = () => {
     <div style={styles.sidebar}>
       <h2 style={styles.brand}>Attendance Pro</h2>
       <nav style={styles.nav}>
-        {isAdmin ? (
+        {isAdmin && (
           <>
             <Link to="/dashboard" style={isActive("/dashboard") ? styles.activeLink : styles.link}>Admin Dashboard</Link>
             <Link to="/employees" style={isActive("/employees") ? styles.activeLink : styles.link}>Manage Staff</Link>
@@ -21,7 +22,8 @@ const Sidebar = () => {
             <Link to="/regularizations" style={isActive("/regularizations") ? styles.activeLink : styles.link}>Regularizations</Link>
             <Link to="/settings" style={isActive("/settings") ? styles.activeLink : styles.link}>Settings</Link>
           </>
-        ) : (
+        )}
+        {!isSuperAdmin && (
           <>
             <Link to="/swipe-reports" style={isActive("/swipe-reports") ? styles.activeLink : styles.link}>Swipe Reports</Link>
             <Link to="/request-leave" style={isActive("/request-leave") ? styles.activeLink : styles.link}>Request Leave</Link>

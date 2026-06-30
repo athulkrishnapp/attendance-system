@@ -46,5 +46,7 @@ router.delete("/entitlements/:id", leaveController.deleteLeaveEntitlement);
 // Leave Balances
 router.get("/balances/:id", leaveController.getLeaveBalances);
 router.post("/balance-action", leaveController.requestBalanceAction);
+router.get("/balance-actions", leaveController.getBalanceActions);
+router.put("/balance-actions/:id", leaveController.updateBalanceActionStatus);
 
 module.exports = router;

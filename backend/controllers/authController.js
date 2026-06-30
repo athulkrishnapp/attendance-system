@@ -55,7 +55,8 @@ exports.login = async (req, res) => {
         name: user.rows[0].name, 
         role_id: user.rows[0].role_id,
         employee_code: user.rows[0].employee_code,
-        email: user.rows[0].email
+        email: user.rows[0].email,
+        department_id: user.rows[0].department_id
       } 
     });
   } catch (err) {

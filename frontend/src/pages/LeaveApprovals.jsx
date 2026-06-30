@@ -6,7 +6,9 @@ import Navbar from "../components/Navbar";
 const LeaveApprovals = () => {
   const user = JSON.parse(localStorage.getItem("user"));
   const [leaves, setLeaves] = useState([]);
+  const [balanceActions, setBalanceActions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("leave_requests");
 
   // Reject Modal State
   const [showRejectModal, setShowRejectModal] = useState(false);
@@ -21,16 +23,20 @@ const LeaveApprovals = () => {
     try {
       const res = await API.get("/leaves/all");
       setLeaves(res.data);
+      
+      const actionsRes = await API.get("/leaves/balance-actions");
+      setBalanceActions(actionsRes.data);
+      
       setLoading(false);
     } catch (err) {
-      console.error("Failed to fetch leaves", err);
+      console.error("Failed to fetch approvals data", err);
       setLoading(false);
     }
   };
 
   const handleApprove = async (id) => {
     try {
-      await api.leaveRequests.approve(id);
+      await api.leaveRequests.approve(id, { resolver_id: user.id });
       fetchLeaves();
     } catch (err) {
       alert("Failed to approve request");
@@ -55,7 +61,7 @@ const LeaveApprovals = () => {
   const handleRejectSubmit = async (e) => {
     e.preventDefault();
     try {
-      await api.leaveRequests.reject(rejectId, { rejection_reason: rejectReason });
+      await api.leaveRequests.reject(rejectId, { rejection_reason: rejectReason, resolver_id: user.id });
       setShowRejectModal(false);
       fetchLeaves();
     } catch (err) {
@@ -63,10 +69,29 @@ const LeaveApprovals = () => {
     }
   };
 
+  const handleActionStatus = async (id, status) => {
+    try {
+      await API.put(`/leaves/balance-actions/${id}`, { status, resolved_by: user.id });
+      fetchLeaves();
+    } catch (err) {
+      alert("Failed to update status");
+    }
+  };
+
   // Filter actionable leaves for the logged in user
+  const isSuperAdmin = user.id === 1 || !user.department_id;
+  const isSubAdmin = user.role_id === 1 && user.id !== 1 && !!user.department_id;
+  
   const actionableLeaves = leaves.filter(l => {
-    if (user.role === 'MANAGER' && l.status === 'PENDING_MANAGER' && l.employee_id !== user.id) return true;
-    if (user.role === 'ADMIN' && (l.status === 'PENDING_ADMIN' || l.status === 'PENDING_MANAGER' || l.status === 'PENDING')) return true;
+    if (l.status === 'PENDING_MANAGER' && l.employee_manager_id === user.id) return true;
+    
+    if (l.status === 'PENDING_ADMIN') {
+      if (isSuperAdmin) return true;
+      if (isSubAdmin && l.forwarder_manager_id === user.id) return true;
+    }
+    
+    if (isSuperAdmin && (l.status === 'PENDING_MANAGER' || l.status === 'PENDING')) return true;
+    
     return false;
   });
 
@@ -80,14 +105,38 @@ const LeaveApprovals = () => {
         <div style={styles.contentPadding}>
           
           <header style={styles.header}>
-            <h2 style={styles.title}>Leave Request Inbox</h2>
-            <p style={styles.subtitle}>Review and manage employee time-off requests.</p>
+            <div style={{ display: 'flex', gap: '20px', borderBottom: '1px solid #e2e8f0', marginBottom: '20px' }}>
+              <button 
+                onClick={() => setActiveTab('leave_requests')} 
+                style={{...styles.tabBtn, borderBottom: activeTab === 'leave_requests' ? '2px solid #2563eb' : 'none', color: activeTab === 'leave_requests' ? '#2563eb' : '#64748b'}}
+              >
+                Leave Requests
+              </button>
+              <button 
+                onClick={() => setActiveTab('balance_actions')} 
+                style={{...styles.tabBtn, borderBottom: activeTab === 'balance_actions' ? '2px solid #2563eb' : 'none', color: activeTab === 'balance_actions' ? '#2563eb' : '#64748b'}}
+              >
+                Surrender Requests (Encash/Carry Fwd)
+              </button>
+            </div>
+            {activeTab === 'leave_requests' ? (
+              <>
+                <h2 style={styles.title}>Leave Request Inbox</h2>
+                <p style={styles.subtitle}>Review and manage employee time-off requests.</p>
+              </>
+            ) : (
+              <>
+                <h2 style={styles.title}>Surrender Requests Inbox</h2>
+                <p style={styles.subtitle}>Review encashment and carry forward requests from employees.</p>
+              </>
+            )}
           </header>
 
           <div style={styles.tableContainer}>
             {loading ? <p style={{ padding: "40px", textAlign: "center" }}>Loading requests...</p> : (
-              <table style={styles.table}>
-                <thead>
+              activeTab === 'leave_requests' ? (
+                <table style={styles.table}>
+                  <thead>
                   <tr>
                     <th style={styles.th}>Employee</th>
                     <th style={styles.th}>Leave Type</th>
@@ -137,7 +186,7 @@ const LeaveApprovals = () => {
                         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                           <button onClick={() => handleApprove(l.id)} style={styles.approveBtn}>Approve</button>
                           <button onClick={() => openRejectModal(l.id)} style={styles.rejectBtn}>Reject</button>
-                          {user.role === 'MANAGER' && (
+                          {l.status === 'PENDING_MANAGER' && (
                             <button onClick={() => handleForward(l.id)} style={styles.forwardBtn}>Forward to Admin</button>
                           )}
                         </div>
@@ -147,6 +196,45 @@ const LeaveApprovals = () => {
                   {actionableLeaves.length === 0 && <tr><td colSpan="6" style={{textAlign: "center", padding: "40px", color: "var(--text-muted)"}}>No pending requests require your action.</td></tr>}
                 </tbody>
               </table>
+              ) : (
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>Employee</th>
+                      <th style={styles.th}>Leave Type</th>
+                      <th style={styles.th}>Action Requested</th>
+                      <th style={styles.th}>Days</th>
+                      <th style={styles.th}>Date</th>
+                      <th style={styles.th}>Status</th>
+                      <th style={styles.th}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {balanceActions.filter(a => a.status === 'PENDING').map(act => (
+                      <tr key={act.id} style={styles.tr}>
+                        <td style={styles.td}>
+                          <div style={{ fontWeight: "600" }}>{act.employee_name}</div>
+                          <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>{act.employee_code}</div>
+                        </td>
+                        <td style={styles.td}><span style={styles.typeBadge}>{act.leave_type_name}</span></td>
+                        <td style={styles.td}>{act.action_type === 'REDEEM' ? 'Encashment' : 'Carry Forward'}</td>
+                        <td style={styles.td}>{act.days}</td>
+                        <td style={styles.td}>{new Date(act.applied_on).toLocaleDateString()}</td>
+                        <td style={styles.td}>
+                          <span style={styles.badgePending}>{act.status}</span>
+                        </td>
+                        <td style={styles.td}>
+                          <div style={{ display: "flex", gap: "8px" }}>
+                            <button onClick={() => handleActionStatus(act.id, 'APPROVED')} style={styles.approveBtn}>Approve</button>
+                            <button onClick={() => handleActionStatus(act.id, 'REJECTED')} style={styles.rejectBtn}>Reject</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {balanceActions.filter(a => a.status === 'PENDING').length === 0 && <tr><td colSpan="7" style={{textAlign: "center", padding: "40px", color: "var(--text-muted)"}}>No pending surrender requests.</td></tr>}
+                  </tbody>
+                </table>
+              )
             )}
           </div>
         </div>
@@ -179,7 +267,8 @@ const styles = {
   modalContent: { backgroundColor: "white", padding: "30px", borderRadius: "12px", width: "400px", boxShadow: "0 10px 25px rgba(0,0,0,0.15)" },
   input: { padding: "12px 16px", border: "1px solid #cbd5e1", borderRadius: "8px", outline: "none", fontSize: "14px", backgroundColor: "#fff", color: "#0f172a" },
   cancelBtn: { backgroundColor: "transparent", color: "#475569", border: "1px solid #cbd5e1", padding: "10px 16px", borderRadius: "6px", cursor: "pointer", fontWeight: "600" },
-  rejectModalBtn: { backgroundColor: "#ef4444", color: "white", border: "none", padding: "10px 16px", borderRadius: "6px", cursor: "pointer", fontWeight: "600" }
+  rejectModalBtn: { backgroundColor: "#ef4444", color: "white", border: "none", padding: "10px 16px", borderRadius: "6px", cursor: "pointer", fontWeight: "600" },
+  tabBtn: { background: "none", border: "none", padding: "10px 20px", fontSize: "16px", fontWeight: "600", cursor: "pointer" }
 };
 
 export default LeaveApprovals;

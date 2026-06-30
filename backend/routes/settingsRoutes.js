@@ -29,5 +29,8 @@ router.get("/levels", settingsController.getLevels);
 router.post("/levels", settingsController.addLevel);
 router.put("/levels/:id", settingsController.updateLevel);
 router.delete("/levels/:id", settingsController.deleteLevel);
+// Custom Leave routes
+router.get("/custom-leaves/:employee_id", settingsController.getCustomLeaves);
+router.post("/custom-leaves", settingsController.setCustomLeaves);
 
 module.exports = router;

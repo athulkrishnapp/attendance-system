@@ -8,9 +8,18 @@ exports.requestLeave = async (req, res) => {
     const finalEndDate = end_date || start_date;
 
     // Get employee's manager
-    const empResult = await pool.query("SELECT manager_id FROM employees WHERE id = $1", [employee_id]);
+    const empResult = await pool.query("SELECT manager_id, role_id FROM employees WHERE id = $1", [employee_id]);
     const managerId = empResult.rows[0]?.manager_id;
-    const initialStatus = managerId ? 'PENDING_MANAGER' : 'PENDING_ADMIN';
+    const roleId = empResult.rows[0]?.role_id;
+    
+    let initialStatus = 'PENDING_MANAGER';
+    if (!managerId) {
+      initialStatus = 'APPROVED'; // If no manager (like Super Admin), maybe auto-approve, though Super Admin doesn't request.
+    } else if (managerId === 1) {
+      // Sub Admin requesting leave goes directly to Super Admin
+      initialStatus = 'PENDING_ADMIN';
+    }
+
     const documentUrl = req.file ? req.file.path : null;
 
     const query = `
@@ -36,7 +45,13 @@ exports.requestLeave = async (req, res) => {
 
 exports.getMyLeaves = async (req, res) => {
   try {
-    const result = await pool.query("SELECT * FROM leave_requests WHERE employee_id = $1 ORDER BY applied_on DESC", [req.params.id]);
+    const result = await pool.query(`
+      SELECT l.*, e.name as resolved_by_name, f.name as forwarded_by_name 
+      FROM leave_requests l
+      LEFT JOIN employees e ON l.resolved_by_id = e.id
+      LEFT JOIN employees f ON l.forwarded_by_id = f.id
+      WHERE l.employee_id = $1 ORDER BY l.applied_on DESC
+    `, [req.params.id]);
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch leaves" });
@@ -47,7 +62,9 @@ exports.getAllLeaves = async (req, res) => {
   try {
     // Join with employees table so the Admin sees names, not just IDs
     const result = await pool.query(`
-      SELECT l.*, e.name, e.employee_code, m.name as forwarded_by_name
+      SELECT l.*, e.name, e.employee_code, m.name as forwarded_by_name,
+             e.manager_id as employee_manager_id,
+             m.manager_id as forwarder_manager_id
       FROM leave_requests l
       JOIN employees e ON l.employee_id = e.id
       LEFT JOIN employees m ON l.forwarded_by_id = m.id
@@ -72,7 +89,8 @@ exports.updateLeaveStatus = async (req, res) => {
 exports.approveLeave = async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await pool.query("UPDATE leave_requests SET status = 'APPROVED' WHERE id = $1 RETURNING *", [id]);
+    const { resolver_id } = req.body;
+    const result = await pool.query("UPDATE leave_requests SET status = 'APPROVED', resolved_by_id = $1 WHERE id = $2 RETURNING *", [resolver_id || null, id]);
     if (result.rows.length === 0) return res.status(404).json({ error: "Leave request not found" });
     
     const leave = result.rows[0];
@@ -119,6 +137,12 @@ exports.forwardLeave = async (req, res) => {
   try {
     const { id } = req.params;
     const { manager_id } = req.body;
+    
+    // Get the manager's manager (sub-admin)
+    const mgrResult = await pool.query("SELECT manager_id FROM employees WHERE id = $1", [manager_id]);
+    const subAdminId = mgrResult.rows[0]?.manager_id;
+    
+    // Forward to the sub-admin. The status becomes PENDING_ADMIN.
     await pool.query("UPDATE leave_requests SET status = 'PENDING_ADMIN', forwarded_by_id = $1 WHERE id = $2", [manager_id, id]);
     res.json({ message: "Leave forwarded to Admin successfully." });
   } catch (err) {
@@ -129,10 +153,10 @@ exports.forwardLeave = async (req, res) => {
 exports.rejectLeave = async (req, res) => {
   try {
     const { id } = req.params;
-    const { rejection_reason } = req.body;
+    const { rejection_reason, resolver_id } = req.body;
     if (!rejection_reason) return res.status(400).json({ error: "Rejection reason is required." });
     
-    const result = await pool.query("UPDATE leave_requests SET status = 'REJECTED', rejection_reason = $1 WHERE id = $2 RETURNING *", [rejection_reason, id]);
+    const result = await pool.query("UPDATE leave_requests SET status = 'REJECTED', rejection_reason = $1, resolved_by_id = $2 WHERE id = $3 RETURNING *", [rejection_reason, resolver_id || null, id]);
     if (result.rows.length === 0) return res.status(404).json({ error: "Leave request not found" });
     res.json({ message: "Leave rejected successfully.", leave: result.rows[0] });
   } catch (err) {
@@ -152,15 +176,15 @@ exports.getLeaveTypes = async (req, res) => {
 
 exports.addLeaveType = async (req, res) => {
   try {
-    const { name, min_advance_notice_days, requires_documentation, max_consecutive_days, is_active } = req.body;
+    const { name, min_advance_notice_days, requires_documentation, max_consecutive_days, is_active, is_encashable, is_carry_forwardable } = req.body;
     if (!name) {
       return res.status(400).json({ error: "name is required" });
     }
     const result = await pool.query(
-      `INSERT INTO leave_types (name, min_advance_notice_days, requires_documentation, max_consecutive_days, is_active)
-       VALUES ($1, COALESCE($2, 0), COALESCE($3, false), $4, COALESCE($5, true))
+      `INSERT INTO leave_types (name, min_advance_notice_days, requires_documentation, max_consecutive_days, is_active, is_encashable, is_carry_forwardable)
+       VALUES ($1, COALESCE($2, 0), COALESCE($3, false), $4, COALESCE($5, true), COALESCE($6, false), COALESCE($7, false))
        RETURNING *`,
-      [name, min_advance_notice_days, requires_documentation, max_consecutive_days, is_active]
+      [name, min_advance_notice_days, requires_documentation, max_consecutive_days, is_active, is_encashable, is_carry_forwardable]
     );
     res.json(result.rows[0]);
   } catch (err) {
@@ -171,16 +195,16 @@ exports.addLeaveType = async (req, res) => {
 exports.updateLeaveType = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, min_advance_notice_days, requires_documentation, max_consecutive_days, is_active } = req.body;
+    const { name, min_advance_notice_days, requires_documentation, max_consecutive_days, is_active, is_encashable, is_carry_forwardable } = req.body;
     if (!name) {
       return res.status(400).json({ error: "name is required" });
     }
     const result = await pool.query(
       `UPDATE leave_types
-       SET name = $1, min_advance_notice_days = $2, requires_documentation = $3, max_consecutive_days = $4, is_active = $5
-       WHERE id = $6
+       SET name = $1, min_advance_notice_days = $2, requires_documentation = $3, max_consecutive_days = $4, is_active = $5, is_encashable = $6, is_carry_forwardable = $7
+       WHERE id = $8
        RETURNING *`,
-      [name, min_advance_notice_days, requires_documentation, max_consecutive_days, is_active, id]
+      [name, min_advance_notice_days, requires_documentation, max_consecutive_days, is_active, is_encashable, is_carry_forwardable, id]
     );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Leave type not found" });
@@ -272,21 +296,28 @@ exports.getLeaveBalances = async (req, res) => {
   try {
     const { id } = req.params; 
     
+    // Get level_id for the employee
     const empRes = await pool.query("SELECT level_id FROM employees WHERE id = $1", [id]);
-    const levelId = empRes.rows[0]?.level_id;
-    if (!levelId) return res.status(404).json({ error: "Employee level not found" });
+    if (empRes.rows.length === 0) return res.status(404).json({ error: "Employee not found" });
+    const levelId = empRes.rows[0]?.level_id || null;
 
-    const entitlementsRes = await pool.query(
-      `SELECT le.annual_quota, lt.id as leave_type_id, lt.name as leave_type_name
-       FROM leave_entitlements le
-       JOIN leave_types lt ON le.leave_type_id = lt.id
-       WHERE le.level_id = $1`, [levelId]
-    );
+    // Get all leave types
+    const leaveTypesRes = await pool.query("SELECT id as leave_type_id, name as leave_type_name, is_encashable, is_carry_forwardable FROM leave_types WHERE is_active = true");
+    const leaveTypes = leaveTypesRes.rows;
+
+    // Get entitlements for this level
+    let entitlements = [];
+    if (levelId) {
+      const entitlementsRes = await pool.query(
+        "SELECT leave_type_id, annual_quota FROM leave_entitlements WHERE level_id = $1", [levelId]
+      );
+      entitlements = entitlementsRes.rows;
+    }
 
     const takenRes = await pool.query(
       `SELECT leave_type_id, SUM(
           CASE 
-            WHEN leave_portion = 'FULL_DAY' THEN EXTRACT(DAY FROM (end_date - start_date)) + 1
+            WHEN leave_portion = 'FULL_DAY' THEN (end_date - start_date) + 1
             WHEN leave_portion IN ('FIRST_HALF', 'SECOND_HALF', 'HALF_DAY') THEN 0.5
             WHEN leave_portion = 'HOURLY' THEN hourly_duration / 8.0
             ELSE 1
@@ -296,21 +327,57 @@ exports.getLeaveBalances = async (req, res) => {
        WHERE employee_id = $1 AND status = 'APPROVED'
        GROUP BY leave_type_id`, [id]
     );
+    const taken = takenRes.rows;
 
-    const balances = entitlementsRes.rows.map(ent => {
-      const takenRecord = takenRes.rows.find(t => t.leave_type_id === ent.leave_type_id);
+    // Get custom allocations
+    const year = new Date().getFullYear();
+    const customRes = await pool.query(
+      "SELECT leave_type_id, allocated_days FROM custom_leave_allocations WHERE employee_id = $1 AND year = $2",
+      [id, year]
+    );
+    const customAllocations = customRes.rows;
+
+    // Get surrendered leaves (approved encashments / carry forwards)
+    const surrenderedRes = await pool.query(
+      `SELECT leave_type_id, SUM(days) as surrendered_days
+       FROM leave_balance_actions
+       WHERE employee_id = $1 AND status = 'APPROVED' AND EXTRACT(YEAR FROM applied_on) = $2
+       GROUP BY leave_type_id`, [id, year]
+    );
+    const surrendered = surrenderedRes.rows;
+
+    const balances = leaveTypes.map(lt => {
+      const takenRecord = taken.find(t => t.leave_type_id === lt.leave_type_id);
       const daysTaken = takenRecord ? parseFloat(takenRecord.days_taken) : 0;
+      
+      const surrenderedRecord = surrendered.find(s => s.leave_type_id === lt.leave_type_id);
+      const daysSurrendered = surrenderedRecord ? parseFloat(surrenderedRecord.surrendered_days) : 0;
+      
+      const customRecord = customAllocations.find(c => c.leave_type_id === lt.leave_type_id);
+      const entRecord = entitlements.find(e => e.leave_type_id === lt.leave_type_id);
+      
+      let allocated = 0;
+      if (customRecord) {
+        allocated = parseFloat(customRecord.allocated_days);
+      } else if (entRecord) {
+        allocated = parseFloat(entRecord.annual_quota);
+      }
+      
       return {
-        leave_type_id: ent.leave_type_id,
-        leave_type_name: ent.leave_type_name,
-        annual_quota: parseFloat(ent.annual_quota),
+        leave_type_id: lt.leave_type_id,
+        leave_type_name: lt.leave_type_name,
+        is_encashable: lt.is_encashable,
+        is_carry_forwardable: lt.is_carry_forwardable,
+        annual_quota: allocated,
         days_taken: daysTaken,
-        balance: parseFloat(ent.annual_quota) - daysTaken
+        days_surrendered: daysSurrendered,
+        balance: allocated - daysTaken - daysSurrendered
       };
-    });
+    }); // removed the filter to show all leaves
 
     res.json(balances);
   } catch (err) {
+    console.error("Failed to fetch leave balances:", err);
     res.status(500).json({ error: "Failed to fetch leave balances" });
   }
 };
@@ -326,5 +393,98 @@ exports.requestBalanceAction = async (req, res) => {
     res.json({ message: "Request submitted successfully" });
   } catch (err) {
     res.status(500).json({ error: "Failed to request balance action" });
+  }
+};
+
+exports.getBalanceActions = async (req, res) => {
+  try {
+    const { employeeId } = req.query;
+    let query = `
+      SELECT ba.*, e.name as employee_name, e.employee_code, e.department_id, lt.name as leave_type_name
+      FROM leave_balance_actions ba
+      JOIN employees e ON ba.employee_id = e.id
+      JOIN leave_types lt ON ba.leave_type_id = lt.id
+    `;
+    let values = [];
+    if (employeeId) {
+      query += ` WHERE ba.employee_id = $1 `;
+      values.push(employeeId);
+    }
+    query += ` ORDER BY ba.applied_on DESC`;
+
+    const result = await pool.query(query, values);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch balance actions" });
+  }
+};
+
+exports.updateBalanceActionStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, resolved_by } = req.body; // 'APPROVED' or 'REJECTED'
+
+    await pool.query('BEGIN');
+    
+    // Update the action
+    const updateRes = await pool.query(
+      `UPDATE leave_balance_actions 
+       SET status = $1, resolved_by = $2, resolved_on = CURRENT_TIMESTAMP
+       WHERE id = $3 RETURNING *`,
+      [status, resolved_by, id]
+    );
+
+    if (updateRes.rows.length === 0) {
+      await pool.query('ROLLBACK');
+      return res.status(404).json({ error: "Action not found" });
+    }
+
+    const action = updateRes.rows[0];
+
+    // If carry forward is approved, add it to next year's custom allocation
+    if (status === 'APPROVED' && action.action_type === 'CARRY_FORWARD') {
+      const nextYear = new Date().getFullYear() + 1;
+      
+      // Check if custom allocation exists for next year
+      const checkRes = await pool.query(
+        "SELECT id, allocated_days FROM custom_leave_allocations WHERE employee_id = $1 AND leave_type_id = $2 AND year = $3",
+        [action.employee_id, action.leave_type_id, nextYear]
+      );
+
+      if (checkRes.rows.length > 0) {
+        // Update existing custom allocation
+        await pool.query(
+          "UPDATE custom_leave_allocations SET allocated_days = allocated_days + $1 WHERE id = $2",
+          [action.days, checkRes.rows[0].id]
+        );
+      } else {
+        // Need to know what standard allocation would be to add to it, or just set it to standard + days.
+        // Get employee level
+        const empRes = await pool.query("SELECT level_id FROM employees WHERE id = $1", [action.employee_id]);
+        const levelId = empRes.rows[0]?.level_id;
+        
+        let standardQuota = 0;
+        if (levelId) {
+          const entRes = await pool.query("SELECT annual_quota FROM leave_entitlements WHERE level_id = $1 AND leave_type_id = $2", [levelId, action.leave_type_id]);
+          if (entRes.rows.length > 0) {
+            standardQuota = parseFloat(entRes.rows[0].annual_quota);
+          }
+        }
+
+        const totalNextYear = standardQuota + parseFloat(action.days);
+
+        await pool.query(
+          "INSERT INTO custom_leave_allocations (employee_id, leave_type_id, allocated_days, year) VALUES ($1, $2, $3, $4)",
+          [action.employee_id, action.leave_type_id, totalNextYear, nextYear]
+        );
+      }
+    }
+
+    await pool.query('COMMIT');
+    res.json({ message: "Action updated successfully", action });
+  } catch (err) {
+    await pool.query('ROLLBACK');
+    console.error("Error updating balance action:", err);
+    res.status(500).json({ error: "Failed to update balance action" });
   }
 };

@@ -238,16 +238,25 @@ exports.getLevels = async (req, res) => {
 
 exports.addLevel = async (req, res) => {
   try {
+    console.log("Adding level:", req.body);
     const { level_name } = req.body;
     if (!level_name) {
+      console.log("level_name missing");
       return res.status(400).json({ error: "level_name is required" });
     }
     const result = await pool.query(
-      "INSERT INTO employee_levels (level_name) VALUES ($1) RETURNING *",
+      "INSERT INTO employee_levels (level_name) VALUES ($1) ON CONFLICT (level_name) DO UPDATE SET is_active = true WHERE employee_levels.is_active = false RETURNING *",
       [level_name]
     );
+    if (result.rows.length === 0) {
+      return res.status(400).json({ error: "A level with this name already exists." });
+    }
     res.json(result.rows[0]);
   } catch (err) {
+    console.error("Error adding level:", err);
+    if (err.code === '23505') {
+      return res.status(400).json({ error: "A level with this name already exists." });
+    }
     res.status(500).json({ error: "Failed to add employee level" });
   }
 };
@@ -268,6 +277,9 @@ exports.updateLevel = async (req, res) => {
     }
     res.json(result.rows[0]);
   } catch (err) {
+    if (err.code === '23505') {
+      return res.status(400).json({ error: "A level with this name already exists." });
+    }
     res.status(500).json({ error: "Failed to update employee level" });
   }
 };
@@ -282,5 +294,43 @@ exports.deleteLevel = async (req, res) => {
     res.json({ message: "Employee level deleted successfully", level: result.rows[0] });
   } catch (err) {
     res.status(500).json({ error: "Failed to delete employee level" });
+  }
+};
+exports.getCustomLeaves = async (req, res) => {
+  try {
+    const { employee_id } = req.params;
+    const year = new Date().getFullYear();
+    const result = await pool.query(
+      "SELECT leave_type_id, allocated_days FROM custom_leave_allocations WHERE employee_id = $1 AND year = $2",
+      [employee_id, year]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch custom leaves" });
+  }
+};
+
+exports.setCustomLeaves = async (req, res) => {
+  try {
+    const { employee_id, allocations } = req.body; // allocations: [{leave_type_id, allocated_days}]
+    const year = new Date().getFullYear();
+    
+    // Begin transaction
+    await pool.query('BEGIN');
+    
+    for (let alloc of allocations) {
+      await pool.query(`
+        INSERT INTO custom_leave_allocations (employee_id, leave_type_id, year, allocated_days)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (employee_id, leave_type_id, year) 
+        DO UPDATE SET allocated_days = EXCLUDED.allocated_days
+      `, [employee_id, alloc.leave_type_id, year, alloc.allocated_days]);
+    }
+    
+    await pool.query('COMMIT');
+    res.json({ message: "Custom leave allocations saved successfully" });
+  } catch (err) {
+    await pool.query('ROLLBACK');
+    res.status(500).json({ error: "Failed to save custom leaves" });
   }
 };

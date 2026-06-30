@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import API from "../services/api";
 import Sidebar from "../components/Sidebar";
 import Navbar from "../components/Navbar";
@@ -10,6 +11,9 @@ const EmployeeManagement = () => {
   const [shifts, setShifts] = useState([]);
   const [filterDepartment, setFilterDepartment] = useState("");
   const [filterShift, setFilterShift] = useState("");
+  const navigate = useNavigate();
+  const currentUser = JSON.parse(localStorage.getItem("user")) || {};
+  const isSuperAdmin = currentUser.id === 1 || !currentUser.department_id;
   
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -59,6 +63,7 @@ const EmployeeManagement = () => {
   const handleEdit = (emp) => {
     setEditingEmp(emp);
     setFormData({
+      id: emp.id,
       employee_code: emp.employee_code,
       name: emp.name,
       email: emp.email,
@@ -98,6 +103,9 @@ const EmployeeManagement = () => {
   };
 
   const filteredEmployees = employees.filter(emp => {
+    // Hide super admin from sub admins
+    if (!isSuperAdmin && emp.id === 1) return false;
+
     const matchDep = filterDepartment ? emp.department_id === parseInt(filterDepartment) : true;
     const matchShift = filterShift ? emp.shift_id === parseInt(filterShift) : true;
     return matchDep && matchShift;
@@ -152,7 +160,7 @@ const EmployeeManagement = () => {
                 </thead>
                 <tbody>
                   {filteredEmployees.map((emp) => (
-                    <tr key={emp.id} style={styles.tr}>
+                    <tr key={emp.id} style={{...styles.tr, cursor: 'pointer'}} onClick={() => navigate(`/employees/${emp.id}/profile`)}>
                       <td style={styles.td}><strong>{emp.employee_code}</strong></td>
                       <td style={styles.td}>
                         {emp.name}<br/>
@@ -166,8 +174,17 @@ const EmployeeManagement = () => {
                         </span>
                       </td>
                       <td style={styles.td}>
-                        <button style={styles.editBtn} onClick={() => handleEdit(emp)}>Edit</button>
-                        <button style={styles.delBtn} onClick={() => handleDelete(emp.id)}>Delete</button>
+                        {!(currentUser.role_id === 1 && currentUser.id !== 1 && emp.role_id === 1 && emp.id !== currentUser.id) && (
+                          <button style={styles.profileBtn} onClick={(e) => { e.stopPropagation(); navigate(`/employees/${emp.id}/profile`); }}>Profile</button>
+                        )}
+                        {(isSuperAdmin || (emp.role_id !== 1 && currentUser.role_id === 1)) && (
+                          <>
+                            <button style={styles.editBtn} onClick={(e) => { e.stopPropagation(); handleEdit(emp); }}>Edit</button>
+                            {emp.id !== currentUser.id && (
+                              <button style={styles.delBtn} onClick={(e) => { e.stopPropagation(); handleDelete(emp.id); }}>Delete</button>
+                            )}
+                          </>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -193,6 +210,7 @@ const styles = {
   th: { backgroundColor: "var(--bg-main)", padding: "16px", borderBottom: "1px solid var(--border)", color: "var(--text-muted)", fontSize: "14px", textTransform: "uppercase" },
   tr: { borderBottom: "1px solid var(--border)" },
   td: { padding: "16px", color: "var(--text-main)" },
+  profileBtn: { background: "#dbeafe", color: "#1e40af", border: "1px solid #bfdbfe", padding: "6px 12px", marginRight: "10px", cursor: "pointer", borderRadius: "4px", fontWeight: "500" },
   editBtn: { background: "#fef3c7", color: "#92400e", border: "1px solid #fde68a", padding: "6px 12px", marginRight: "10px", cursor: "pointer", borderRadius: "4px", fontWeight: "500" },
   delBtn: { background: "#fee2e2", color: "#991b1b", border: "1px solid #fecaca", padding: "6px 12px", cursor: "pointer", borderRadius: "4px", fontWeight: "500" },
   badgeAdmin: { backgroundColor: "#fef08a", color: "#854d0e", padding: "4px 10px", borderRadius: "20px", fontSize: "12px", fontWeight: "600" },
