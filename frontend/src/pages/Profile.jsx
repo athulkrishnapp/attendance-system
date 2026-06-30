@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
-import API from "../services/api";
+import API, { api } from "../services/api";
 import Sidebar from "../components/Sidebar";
 import Navbar from "../components/Navbar";
 
 const Profile = () => {
   // Pulling the full user object from localStorage
   const user = JSON.parse(localStorage.getItem("user")) || {};
+  const isSuperAdmin = user?.id === 1 || !user?.department_id;
   
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [passwords, setPasswords] = useState({ newPassword: "", confirmPassword: "" });
@@ -107,24 +108,26 @@ const Profile = () => {
               )}
             </div>
 
-            {/* Leave Balances Section */}
-            <div style={{...styles.card, gridColumn: "1 / -1"}}>
-              <div style={{display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px"}}>
-                <h3 style={{margin: 0, color: "#0f172a"}}>Leave Balances</h3>
-                <button style={styles.toggleBtn} onClick={() => setShowBalanceModal(true)}>Manage Unused Leaves</button>
+            {/* Leave Balances Section (Hidden for Super Admin) */}
+            {!isSuperAdmin && (
+              <div style={{...styles.card, gridColumn: "1 / -1"}}>
+                <div style={{display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px"}}>
+                  <h3 style={{margin: 0, color: "#0f172a"}}>Leave Balances</h3>
+                  <button style={styles.toggleBtn} onClick={() => setShowBalanceModal(true)}>Manage Unused Leaves</button>
+                </div>
+                
+                <div style={{display: "flex", gap: "20px", flexWrap: "wrap"}}>
+                  {balances.map(b => (
+                    <div key={b.leave_type_id} style={{padding: "15px", border: "1px solid #cbd5e1", borderRadius: "8px", width: "200px"}}>
+                      <div style={{fontSize: "14px", color: "#64748b", fontWeight: "600", textTransform: "uppercase"}}>{b.leave_type_name}</div>
+                      <div style={{fontSize: "24px", fontWeight: "bold", color: "#0f172a", marginTop: "10px"}}>{b.balance} <span style={{fontSize: "14px", color: "#64748b", fontWeight: "normal"}}>days left</span></div>
+                      <div style={{fontSize: "12px", color: "#94a3b8", marginTop: "5px"}}>Quota: {b.annual_quota} | Taken: {b.days_taken}</div>
+                    </div>
+                  ))}
+                  {balances.length === 0 && <p style={{color: "#64748b"}}>No leave balances found.</p>}
+                </div>
               </div>
-              
-              <div style={{display: "flex", gap: "20px", flexWrap: "wrap"}}>
-                {balances.map(b => (
-                  <div key={b.leave_type_id} style={{padding: "15px", border: "1px solid #cbd5e1", borderRadius: "8px", width: "200px"}}>
-                    <div style={{fontSize: "14px", color: "#64748b", fontWeight: "600", textTransform: "uppercase"}}>{b.leave_type_name}</div>
-                    <div style={{fontSize: "24px", fontWeight: "bold", color: "#0f172a", marginTop: "10px"}}>{b.balance} <span style={{fontSize: "14px", color: "#64748b", fontWeight: "normal"}}>days left</span></div>
-                    <div style={{fontSize: "12px", color: "#94a3b8", marginTop: "5px"}}>Quota: {b.annual_quota} | Taken: {b.days_taken}</div>
-                  </div>
-                ))}
-                {balances.length === 0 && <p style={{color: "#64748b"}}>No leave balances found.</p>}
-              </div>
-            </div>
+            )}
 
           </div>
 

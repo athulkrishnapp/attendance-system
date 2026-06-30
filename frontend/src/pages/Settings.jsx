@@ -9,7 +9,7 @@ const Settings = () => {
 
   // Global Settings & Holidays
   const [settings, setSettings] = useState({
-    shift_start_time: "", shift_end_time: "", grace_period_minutes: 0, required_working_hours: 0, casual_leave_notice_days: 0, financial_year_start_month: 1, financial_year_end_month: 12
+    shift_start_time: "", shift_end_time: "", grace_period_minutes: 0, required_working_hours: 0, casual_leave_notice_days: 0, financial_year_start_month: 1, financial_year_end_month: 12, working_days: [1,2,3,4,5,6]
   });
   const [holidays, setHolidays] = useState([]);
   const [newHoliday, setNewHoliday] = useState({ holiday_date: "", description: "" });
@@ -403,6 +403,7 @@ const Settings = () => {
               <button onClick={() => setActiveTab("levels")} style={activeTab === "levels" ? styles.tabActive : styles.tabInactive}>Hierarchy Levels</button>
               <button onClick={() => setActiveTab("leave_types")} style={activeTab === "leave_types" ? styles.tabActive : styles.tabInactive}>Leave Types</button>
               <button onClick={() => setActiveTab("entitlements")} style={activeTab === "entitlements" ? styles.tabActive : styles.tabInactive}>Leave Allocations</button>
+              <button onClick={() => setActiveTab("company_rules")} style={activeTab === "company_rules" ? styles.tabActive : styles.tabInactive}>Company Rules</button>
             </div>
 
             <div style={styles.tabContent}>
@@ -434,6 +435,38 @@ const Settings = () => {
                         <select value={settings.financial_year_end_month} onChange={(e) => setSettings({...settings, financial_year_end_month: e.target.value})} style={styles.formInput}>
                           {Array.from({length: 12}, (_, i) => (<option key={i} value={i+1}>{new Date(0, i).toLocaleString('default', { month: 'long' })}</option>))}
                         </select>
+                      </div>
+                      <div style={styles.formGroupFull}>
+                        <label style={styles.formLabel}>Weekly Working Days</label>
+                        <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
+                          {[
+                            { label: 'Sunday', value: 0 },
+                            { label: 'Monday', value: 1 },
+                            { label: 'Tuesday', value: 2 },
+                            { label: 'Wednesday', value: 3 },
+                            { label: 'Thursday', value: 4 },
+                            { label: 'Friday', value: 5 },
+                            { label: 'Saturday', value: 6 }
+                          ].map(day => (
+                            <label key={day.value} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '14px', color: '#334155' }}>
+                              <input 
+                                type="checkbox" 
+                                checked={settings.working_days?.includes(day.value)} 
+                                onChange={(e) => {
+                                  const currentDays = settings.working_days || [];
+                                  let newDays;
+                                  if (e.target.checked) {
+                                    newDays = [...currentDays, day.value];
+                                  } else {
+                                    newDays = currentDays.filter(d => d !== day.value);
+                                  }
+                                  setSettings({...settings, working_days: newDays});
+                                }} 
+                              />
+                              {day.label}
+                            </label>
+                          ))}
+                        </div>
                       </div>
                       <div style={styles.formActionRow}>
                         <button type="submit" style={styles.btnPrimary}>Save Defaults</button>
@@ -867,6 +900,40 @@ const Settings = () => {
                 </div>
               )}
 
+              {/* COMPANY RULES (READ-ONLY) */}
+              {activeTab === "company_rules" && (
+                <div>
+                  <h2 style={styles.cardTitle}>Company Rules & Definitions</h2>
+                  <p style={styles.cardDesc}>These statuses and flags are integrated directly into the system's core calculation engine.</p>
+                  
+                  <div style={{...styles.card, marginBottom: "20px"}}>
+                    <h3 style={styles.cardTitle}>Attendance Statuses</h3>
+                    <hr style={styles.divider} />
+                    <ul style={{ listStyleType: 'none', padding: 0, margin: 0, color: '#334155', fontSize: '15px' }}>
+                      <li style={{ marginBottom: '12px' }}><strong>Present</strong>: Employee has punched in and out, and worked at least half the required hours.</li>
+                      <li style={{ marginBottom: '12px' }}><strong>Absent</strong>: Employee did not punch in or work any hours on a given day.</li>
+                      <li style={{ marginBottom: '12px' }}><strong>Leave</strong>: Employee has an approved full-day leave request.</li>
+                      <li style={{ marginBottom: '12px' }}><strong>Half Day</strong>: Employee has an approved half-day leave, OR worked less than half the required shift time.</li>
+                      <li style={{ marginBottom: '12px' }}><strong>Missing Punch</strong>: Employee only has a single punch (either In or Out) for the entire day.</li>
+                      <li style={{ marginBottom: '12px' }}><strong>Holiday</strong>: Date is a company-declared holiday.</li>
+                      <li style={{ marginBottom: '12px' }}><strong>Week Off</strong>: Date falls on a weekend.</li>
+                    </ul>
+                  </div>
+
+                  <div style={styles.card}>
+                    <h3 style={styles.cardTitle}>Modifier Flags</h3>
+                    <hr style={styles.divider} />
+                    <ul style={{ listStyleType: 'none', padding: 0, margin: 0, color: '#334155', fontSize: '15px' }}>
+                      <li style={{ marginBottom: '12px' }}><strong>Overtime</strong>: Employee worked more hours than their required shift duration.</li>
+                      <li style={{ marginBottom: '12px' }}><strong>Late</strong>: Employee's first punch-in was after the expected shift start time + grace period.</li>
+                      <li style={{ marginBottom: '12px' }}><strong>Early Exit</strong>: Employee's last punch-out was before their expected shift end time.</li>
+                      <li style={{ marginBottom: '12px' }}><strong>First Half</strong>: Employee recorded working hours before the halfway mark of their shift.</li>
+                      <li style={{ marginBottom: '12px' }}><strong>Second Half</strong>: Employee recorded working hours after the halfway mark of their shift.</li>
+                      <li style={{ marginBottom: '12px' }}><strong>Hourly Leave</strong>: Employee has an approved hourly leave request on this day.</li>
+                    </ul>
+                  </div>
+                </div>
+              )}
 
             </div>
           </div>

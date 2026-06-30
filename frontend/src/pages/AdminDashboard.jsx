@@ -46,10 +46,12 @@ const AdminDashboard = () => {
           };
         });
 
-        generateCalendar(selectedMonth, uploadedDates, publicHolidays);
+        const workingDays = res.data.workingDays || [1, 2, 3, 4, 5, 6];
+
+        generateCalendar(selectedMonth, uploadedDates, publicHolidays, workingDays);
       } catch (err) {
         console.error("Failed to fetch calendar data", err);
-        generateCalendar(selectedMonth, [], []); 
+        generateCalendar(selectedMonth, [], [], [1, 2, 3, 4, 5, 6]); 
       }
     };
     fetchCalendarData();
@@ -68,7 +70,7 @@ const AdminDashboard = () => {
     }
   };
 
-  const generateCalendar = (monthString, uploadedDates, publicHolidays) => {
+  const generateCalendar = (monthString, uploadedDates, publicHolidays, workingDays) => {
     const [year, month] = monthString.split("-");
     const numDays = new Date(year, month, 0).getDate();
     const daysArray = [];
@@ -91,7 +93,7 @@ const AdminDashboard = () => {
       const dateObj = new Date(`${dateString}T00:00:00Z`); 
       
       const dayOfWeek = dateObj.getUTCDay();
-      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+      const isWeekOff = !workingDays.includes(dayOfWeek);
       const isFuture = dateObj > today;
       
       // Match the exact YYYY-MM-DD
@@ -103,7 +105,7 @@ const AdminDashboard = () => {
       
       if (isUploaded) status = "UPLOADED";
       else if (isHoliday) status = "PUBLIC_HOLIDAY";
-      else if (isWeekend) status = "WEEKEND";
+      else if (isWeekOff) status = "WEEK_OFF";
       else if (isFuture) status = "FUTURE";
 
       daysArray.push({
@@ -279,7 +281,7 @@ const AdminDashboard = () => {
                 <div style={styles.legendContainer}>
                   <div style={styles.legendItem}><span style={{...styles.colorBox, backgroundColor: "#dcfce7", borderColor: "#86efac"}}></span> Uploaded</div>
                   <div style={styles.legendItem}><span style={{...styles.colorBox, backgroundColor: "#fee2e2", borderColor: "#fca5a5"}}></span> Missing</div>
-                  <div style={styles.legendItem}><span style={{...styles.colorBox, backgroundColor: "#eef2ff", borderColor: "#a5b4fc"}}></span> Weekend</div>
+                  <div style={styles.legendItem}><span style={{...styles.colorBox, backgroundColor: "#f3e8ff", borderColor: "#d8b4fe"}}></span> Week Off</div>
                   <div style={styles.legendItem}><span style={{...styles.colorBox, backgroundColor: "#fef9c3", borderColor: "#fde047"}}></span> Public Holiday</div>
                   <div style={styles.legendItem}><span style={{...styles.colorBox, backgroundColor: "#f8fafc", border: "1px dashed #cbd5e1"}}></span> Future</div>
                 </div>
@@ -307,8 +309,10 @@ const AdminDashboard = () => {
                 let borderColor = "var(--border)";
                 let statusLabel = day.status.replace("_", " ");
                 
-                if (day.status === "WEEKEND") { bgColor = "#eef2ff"; borderColor = "#e0e7ff"; } 
-                else if (day.status === "PUBLIC_HOLIDAY") { bgColor = "#fef9c3"; borderColor = "#fef08a"; } 
+                if (day.status === "WEEK_OFF") {
+                  bgColor = "#f3e8ff"; // Light purple for week off
+                  borderColor = "#d8b4fe";
+                } else if (day.status === "PUBLIC_HOLIDAY") { bgColor = "#fef9c3"; borderColor = "#fef08a"; } 
                 else if (day.status === "FUTURE") { bgColor = "#f8fafc"; borderColor = "#f1f5f9"; } 
                 else if (day.status === "MISSING") { borderColor = "#fca5a5"; bgColor = "#fef2f2"; } 
                 else if (day.status === "UPLOADED") { borderColor = "#86efac"; bgColor = "#f0fdf4"} 

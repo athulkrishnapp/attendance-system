@@ -14,19 +14,22 @@ const Sidebar = () => {
       <h2 style={styles.brand}>Attendance Pro</h2>
       <nav style={styles.nav}>
         {isAdmin && (
-          <>
-            <Link to="/dashboard" style={isActive("/dashboard") ? styles.activeLink : styles.link}>Admin Dashboard</Link>
-            <Link to="/employees" style={isActive("/employees") ? styles.activeLink : styles.link}>Manage Staff</Link>
-            <Link to="/attendance" style={isActive("/attendance") ? styles.activeLink : styles.link}>Master Reports</Link>
-            <Link to="/approvals" style={isActive("/approvals") ? styles.activeLink : styles.link}>Leave Approvals</Link>
-            <Link to="/regularizations" style={isActive("/regularizations") ? styles.activeLink : styles.link}>Regularizations</Link>
-            <Link to="/settings" style={isActive("/settings") ? styles.activeLink : styles.link}>Settings</Link>
-          </>
+          <Link to="/dashboard" style={isActive("/dashboard") ? styles.activeLink : styles.link}>Admin Dashboard</Link>
         )}
         {!isSuperAdmin && (
           <>
             <Link to="/swipe-reports" style={isActive("/swipe-reports") ? styles.activeLink : styles.link}>Swipe Reports</Link>
             <Link to="/request-leave" style={isActive("/request-leave") ? styles.activeLink : styles.link}>Request Leave</Link>
+          </>
+        )}
+        {isAdmin && (
+          <>
+            {!isSuperAdmin && <div style={{ height: "16px" }}></div>}
+            <Link to="/employees" style={isActive("/employees") ? styles.activeLink : styles.link}>Manage Staff</Link>
+            <Link to="/attendance" style={isActive("/attendance") ? styles.activeLink : styles.link}>Master Reports</Link>
+            <Link to="/approvals" style={isActive("/approvals") ? styles.activeLink : styles.link}>Leave Approvals</Link>
+            <Link to="/regularizations" style={isActive("/regularizations") ? styles.activeLink : styles.link}>Regularizations</Link>
+            <Link to="/settings" style={isActive("/settings") ? styles.activeLink : styles.link}>Settings</Link>
           </>
         )}
       </nav>

@@ -41,6 +41,31 @@ exports.uploadAttendance = async (req, res) => {
       };
     });
 
+    const leavesRes = await pool.query(`
+      SELECT employee_id, start_date, end_date, duration, leave_portion, hourly_duration 
+      FROM leave_requests 
+      WHERE status = 'APPROVED'
+    `);
+    
+    // Helper to format Date to YYYY-MM-DD in local time
+    const formatDate = (dateObj) => {
+        const d = new Date(dateObj);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+
+    const leaveMap = {}; // leaveMap[empId][dateStr] = leaveDetails
+    leavesRes.rows.forEach(leave => {
+        let current = new Date(leave.start_date);
+        const end = new Date(leave.end_date);
+        
+        while (current <= end) {
+            const dateStr = formatDate(current);
+            if (!leaveMap[leave.employee_id]) leaveMap[leave.employee_id] = {};
+            leaveMap[leave.employee_id][dateStr] = leave;
+            current.setDate(current.getDate() + 1);
+        }
+    });
+
     const workbook = xlsx.readFile(req.file.path);
     const sheetName = workbook.SheetNames[0];
     const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
@@ -129,7 +154,8 @@ exports.uploadAttendance = async (req, res) => {
 
       const holidayName = holidayMap[record.attendance_date];
       const dayOfWeek = firstIn.getDay();
-      const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
+      const workingDays = settings.working_days || [1, 2, 3, 4, 5, 6];
+      const isWeekend = !workingDays.includes(dayOfWeek);
 
       // Fetch employee shift or use defaults
       const empInfo = Object.values(empMap).find(e => e.id === record.employee_id);
@@ -153,12 +179,31 @@ exports.uploadAttendance = async (req, res) => {
         if (workingHours > 0) modifier_flags.push('HOLIDAY_WORK');
       }
 
+      // Apply Leaves
+      const approvedLeave = leaveMap[record.employee_id]?.[record.attendance_date];
+      
+      if (approvedLeave) {
+        if (approvedLeave.duration === 'Full Day') {
+          core_status = 'LEAVE';
+        } else if (approvedLeave.duration === 'Hourly') {
+          modifier_flags.push('HOURLY_LEAVE');
+        } else if (approvedLeave.duration === 'Half Day') {
+          core_status = 'HALF_DAY';
+          if (approvedLeave.leave_portion === 'FIRST_HALF') modifier_flags.push('HALF_DAY_FN');
+          if (approvedLeave.leave_portion === 'SECOND_HALF') modifier_flags.push('HALF_DAY_AN');
+        }
+      }
+
       if (core_status === 'PRESENT') {
         const [shiftHr, shiftMin] = shiftStartTime.split(':').map(Number);
         const [logicalYear, logicalMonth, logicalDay] = record.attendance_date.split('-').map(Number);
         
         const expectedStartDate = new Date(logicalYear, logicalMonth - 1, logicalDay, shiftHr, shiftMin, 0);
         const maxGraceDate = new Date(expectedStartDate.getTime() + (gracePeriod * 60000));
+        
+        const shiftEndHrStr = empInfo?.shift_end_time || settings.shift_end_time || '18:00:00';
+        const [shiftEndHr, shiftEndMin] = shiftEndHrStr.split(':').map(Number);
+        const expectedEndDate = new Date(logicalYear, logicalMonth - 1, logicalDay, shiftEndHr, shiftEndMin, 0);
         
         const halfDayThreshold = empInfo?.half_day_mark_time || '13:00:00';
         const [halfHr, halfMin] = halfDayThreshold.split(':').map(Number);
@@ -167,26 +212,30 @@ exports.uploadAttendance = async (req, res) => {
         if (halfDayThresholdDate < expectedStartDate) {
             halfDayThresholdDate.setDate(halfDayThresholdDate.getDate() + 1);
         }
+        if (expectedEndDate < expectedStartDate) {
+            expectedEndDate.setDate(expectedEndDate.getDate() + 1);
+        }
 
         const halfRequiredHours = requiredHours / 2;
         
         if (workingHours < halfRequiredHours) {
             core_status = 'HALF_DAY';
-            if (firstIn >= halfDayThresholdDate) {
-                modifier_flags.push('HALF_DAY_FN');
-            } else {
-                modifier_flags.push('HALF_DAY_AN');
-            }
-        } else if (firstIn >= halfDayThresholdDate) {
+        } else if (firstIn >= halfDayThresholdDate || lastOut <= halfDayThresholdDate) {
             core_status = 'HALF_DAY';
-            modifier_flags.push('HALF_DAY_FN');
-        } else if (lastOut <= halfDayThresholdDate) {
-            core_status = 'HALF_DAY';
-            modifier_flags.push('HALF_DAY_AN');
         } else {
             if (firstIn > maxGraceDate) modifier_flags.push('LATE');
-            if (workingHours > requiredHours + 1) modifier_flags.push('OVERTIME');
-            if (workingHours > 0 && workingHours < requiredHours - 0.5) modifier_flags.push('EARLY_OUT');
+            if (workingHours > requiredHours) modifier_flags.push('OVERTIME');
+            if (lastOut < expectedEndDate) modifier_flags.push('EARLY_EXIT');
+        }
+
+        // Flag for which half they worked, ONLY if it's a half day
+        if (core_status === 'HALF_DAY' && workingHours > 0) {
+            if (lastOut <= halfDayThresholdDate) modifier_flags.push('FIRST_HALF');
+            else if (firstIn >= halfDayThresholdDate) modifier_flags.push('SECOND_HALF');
+            else {
+                modifier_flags.push('FIRST_HALF');
+                modifier_flags.push('SECOND_HALF');
+            }
         }
       }
 
@@ -369,8 +418,12 @@ exports.getCalendarStatus = async (req, res) => {
     );
     const holidays = holidayResult.rows;
 
-    // Return BOTH arrays to the frontend
-    res.json({ uploadedDates, holidays });
+    // Fetch working days
+    const settingsResult = await pool.query("SELECT working_days FROM company_settings LIMIT 1");
+    const workingDays = settingsResult.rows[0]?.working_days || [1, 2, 3, 4, 5, 6];
+
+    // Return ALL arrays to the frontend
+    res.json({ uploadedDates, holidays, workingDays });
   } catch (err) {
     console.error("Calendar fetch error:", err.message);
     res.status(500).json({ error: "Failed to fetch calendar data" });
