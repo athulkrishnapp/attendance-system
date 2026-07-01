@@ -28,6 +28,9 @@ const dashboard = async (req, res) => {
 
 const getAttendanceReport = async (req, res) => {
   try {
+    const settingsRes = await pool.query("SELECT visible_flags FROM company_settings LIMIT 1");
+    const visibleFlags = settingsRes.rows[0]?.visible_flags || [];
+
     const result = await pool.query(`
       SELECT a.id, a.employee_id, TO_CHAR(a.attendance_date, 'YYYY-MM-DD') as attendance_date, 
              a.first_in, a.last_out, a.working_hours, a.core_status, a.modifier_flags, a.remarks, 
@@ -40,7 +43,15 @@ const getAttendanceReport = async (req, res) => {
       LEFT JOIN leave_types lt ON lr.leave_type_id = lt.id
       ORDER BY a.attendance_date DESC, e.name ASC
     `);
-    res.json(result.rows);
+
+    const maskedRows = result.rows.map(row => {
+      if (row.modifier_flags && Array.isArray(row.modifier_flags)) {
+        row.modifier_flags = row.modifier_flags.filter(flag => visibleFlags.includes(flag));
+      }
+      return row;
+    });
+
+    res.json(maskedRows);
   } catch (err) {
     res.status(500).send("Error fetching attendance report");
   }
@@ -48,6 +59,9 @@ const getAttendanceReport = async (req, res) => {
 
 const getMyAttendance = async (req, res) => {
   try {
+    const settingsRes = await pool.query("SELECT visible_flags FROM company_settings LIMIT 1");
+    const visibleFlags = settingsRes.rows[0]?.visible_flags || [];
+
     const result = await pool.query(`
       SELECT a.*, TO_CHAR(a.attendance_date, 'YYYY-MM-DD') as attendance_date,
              lt.name as leave_type_name
@@ -59,7 +73,15 @@ const getMyAttendance = async (req, res) => {
       WHERE a.employee_id = $1 
       ORDER BY a.attendance_date DESC
     `, [req.params.id]);
-    res.json(result.rows);
+
+    const maskedRows = result.rows.map(row => {
+      if (row.modifier_flags && Array.isArray(row.modifier_flags)) {
+        row.modifier_flags = row.modifier_flags.filter(flag => visibleFlags.includes(flag));
+      }
+      return row;
+    });
+
+    res.json(maskedRows);
   } catch (err) {
     console.error("Error fetching personal attendance:", err);
     res.status(500).send("Error fetching personal attendance");

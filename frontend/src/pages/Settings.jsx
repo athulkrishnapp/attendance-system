@@ -9,7 +9,7 @@ const Settings = () => {
 
   // Global Settings & Holidays
   const [settings, setSettings] = useState({
-    shift_start_time: "", shift_end_time: "", grace_period_minutes: 0, required_working_hours: 0, casual_leave_notice_days: 0, financial_year_start_month: 1, financial_year_end_month: 12, working_days: [1,2,3,4,5,6], calculation_mode: "WORKING_HOURS"
+    shift_start_time: "", shift_end_time: "", grace_period_minutes: 0, required_working_hours: 0, casual_leave_notice_days: 0, financial_year_start_month: 1, financial_year_end_month: 12, working_days: [1,2,3,4,5,6], calculation_mode: "WORKING_HOURS", visible_flags: []
   });
   const [holidays, setHolidays] = useState([]);
   const [newHoliday, setNewHoliday] = useState({ holiday_date: "", description: "" });
@@ -475,6 +475,40 @@ const Settings = () => {
                             </label>
                           ))}
                         </div>
+                      </div>
+                      <div style={styles.formGroupFull}>
+                        <label style={styles.formLabel}>Visible Attendance Flags</label>
+                        <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
+                          {[
+                            { label: 'Late', value: 'LATE' },
+                            { label: 'Early Exit', value: 'EARLY_EXIT' },
+                            { label: 'Overtime', value: 'OVERTIME' },
+                            { label: 'First Half', value: 'FIRST_HALF' },
+                            { label: 'Second Half', value: 'SECOND_HALF' },
+                            { label: 'Weekend Work', value: 'WEEKEND_WORK' },
+                            { label: 'Holiday Work', value: 'HOLIDAY_WORK' },
+                            { label: 'Hourly Leave', value: 'HOURLY_LEAVE' }
+                          ].map(flag => (
+                            <label key={flag.value} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '14px', color: '#334155' }}>
+                              <input 
+                                type="checkbox" 
+                                checked={settings.visible_flags?.includes(flag.value) || false} 
+                                onChange={(e) => {
+                                  const currentFlags = settings.visible_flags || [];
+                                  let newFlags;
+                                  if (e.target.checked) {
+                                    newFlags = [...currentFlags, flag.value];
+                                  } else {
+                                    newFlags = currentFlags.filter(f => f !== flag.value);
+                                  }
+                                  setSettings({...settings, visible_flags: newFlags});
+                                }} 
+                              />
+                              {flag.label}
+                            </label>
+                          ))}
+                        </div>
+                        <p style={{fontSize: "12px", color: "var(--text-muted)", marginTop: "4px"}}>Select which modifier flags are displayed in reports.</p>
                       </div>
                       <div style={styles.formActionRow}>
                         <button type="submit" style={styles.btnPrimary}>Save Defaults</button>

@@ -182,17 +182,15 @@ exports.uploadAttendance = async (req, res) => {
       let lastOut = null;
       
       if (record.scans.length === 1) {
-          const scan = record.scans[0];
-          const diffToStart = Math.abs(scan - expectedStartDate);
-          const diffToEnd = Math.abs(scan - expectedEndDate);
-          if (diffToStart <= diffToEnd) {
-              firstIn = scan;
-          } else {
-              lastOut = scan;
-          }
+          firstIn = record.scans[0];
+          lastOut = null;
       } else if (record.scans.length > 1) {
           firstIn = record.scans[0];
           lastOut = record.scans[record.scans.length - 1];
+          // Check for duplicate or spam punches in the same minute
+          if (Math.abs(lastOut - firstIn) < 60000) {
+              lastOut = null;
+          }
       }
       
       const workingHours = (firstIn && lastOut) ? parseFloat(((lastOut - firstIn) / (1000 * 60 * 60)).toFixed(2)) : 0;
@@ -434,6 +432,9 @@ exports.getAttendanceByDate = async (req, res) => {
   try {
     const { date } = req.params; // Expected format: YYYY-MM-DD
 
+    const settingsRes = await pool.query("SELECT visible_flags FROM company_settings LIMIT 1");
+    const visibleFlags = settingsRes.rows[0]?.visible_flags || [];
+
     const result = await pool.query(
       `SELECT a.*, e.name, e.employee_code, d.department_name, s.shift_name 
        FROM attendance_summary a 
@@ -445,7 +446,14 @@ exports.getAttendanceByDate = async (req, res) => {
       [date]
     );
 
-    res.json(result.rows);
+    const maskedRows = result.rows.map(row => {
+      if (row.modifier_flags && Array.isArray(row.modifier_flags)) {
+        row.modifier_flags = row.modifier_flags.filter(flag => visibleFlags.includes(flag));
+      }
+      return row;
+    });
+
+    res.json(maskedRows);
   } catch (err) {
     console.error("Fetch by date error:", err.message);
     res.status(500).json({ error: "Failed to fetch date attendance" });

@@ -58,11 +58,11 @@ const AttendanceTable = ({ reports, loading }) => {
               </td>
 
               <td style={styles.td}>
-                {log.first_in || "--:--"}
+                {log.first_in || "-"}
               </td>
 
               <td style={styles.td}>
-                {log.last_out || "--:--"}
+                {log.last_out || "-"}
               </td>
 
               <td style={styles.td}>
