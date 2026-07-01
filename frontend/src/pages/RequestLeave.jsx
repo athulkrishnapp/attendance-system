@@ -16,11 +16,15 @@ const todayFormatted = getTodayDate();
 const RequestLeave = () => {
   const user = JSON.parse(localStorage.getItem("user"));
   const [leaves, setLeaves] = useState([]);
+  const [regularizations, setRegularizations] = useState([]);
   const [leaveTypes, setLeaveTypes] = useState([]);
+  const [viewMode, setViewMode] = useState('LEAVE');
   const [msg, setMsg] = useState({ text: "", type: "" });
   const [activeTab, setActiveTab] = useState('ONGOING');
   const [backendWarnings, setBackendWarnings] = useState([]);
   const [backendStats, setBackendStats] = useState(null);
+  const [showApplyModal, setShowApplyModal] = useState(false);
+  const [selectedHistory, setSelectedHistory] = useState(null);
 
   
   const [leaveForm, setLeaveForm] = useState({ 
@@ -69,6 +73,8 @@ const RequestLeave = () => {
     try {
       const res = await API.get(`/leaves/my-leaves/${user.id}`);
       setLeaves(res.data);
+      const regRes = await API.get(`/attendance/regularize/my-requests/${user.id}`);
+      setRegularizations(regRes.data);
     } catch (err) { console.error(err); }
   };
 
@@ -138,54 +144,190 @@ const RequestLeave = () => {
 
   const ongoingLeaves = leaves.filter(l => l.status && l.status.startsWith('PENDING'));
   const historyLeaves = leaves.filter(l => !l.status || !l.status.startsWith('PENDING'));
+  
+  const ongoingRegs = regularizations.filter(r => r.status && r.status.startsWith('PENDING'));
+  const historyRegs = regularizations.filter(r => !r.status || !r.status.startsWith('PENDING'));
 
-  const renderTable = (data) => (
+  const renderRegTable = (data, isHistory) => (
+    <div style={{ overflowY: "auto", maxHeight: "550px" }}>
+      <table style={styles.table}>
+        <thead style={styles.stickyHeader}>
+          <tr>
+            <th style={styles.th}>Date</th>
+            <th style={styles.th}>Requested Times</th>
+            {!isHistory && <th style={styles.th}>Reason</th>}
+            {!isHistory && <th style={styles.th}>Request Tracking</th>}
+            {!isHistory && <th style={styles.th}>Manager Remarks</th>}
+            <th style={styles.th}>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.map(r => (
+            <tr key={r.id} onClick={() => isHistory && setSelectedHistory({...r, type: 'REGULARIZATION'})} style={{...styles.tr, cursor: isHistory ? 'pointer' : 'default'}} 
+                onMouseEnter={(e) => { if(isHistory) e.currentTarget.style.backgroundColor = '#f1f5f9' }}
+                onMouseLeave={(e) => { if(isHistory) e.currentTarget.style.backgroundColor = 'transparent' }}>
+              <td style={styles.td}>
+                <div style={{color: "var(--text-main)", fontWeight: "600", fontSize: "14px"}}>
+                  {new Date(r.attendance_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                </div>
+                <div style={{fontSize: "12px", color: "#6366f1", marginTop: "8px", fontWeight: "700", backgroundColor: "#e0e7ff", display: "inline-block", padding: "2px 8px", borderRadius: "12px"}}>
+                  {(() => {
+                    let prevFlags = [];
+                    try {
+                      const mFlags = Array.isArray(r.modifier_flags) ? r.modifier_flags : (r.modifier_flags ? JSON.parse(r.modifier_flags) : []);
+                      prevFlags = mFlags.filter(f => f.startsWith('PREV_')).map(f => f.replace('PREV_', ''));
+                    } catch(e) {}
+                    const currentStatus = r.core_status || 'Unknown';
+                    if (prevFlags.length > 0) {
+                      return (
+                        <>
+                          <span style={{ textDecoration: 'line-through', color: '#94a3b8', marginRight: '6px' }}>{prevFlags.join(', ')}</span>
+                          → {currentStatus}
+                        </>
+                      );
+                    }
+                    return currentStatus;
+                  })()}
+                </div>
+              </td>
+              <td style={styles.td}>
+                <div style={{color: "var(--text-main)", fontWeight: "700", fontSize: "14px", whiteSpace: "nowrap"}}>
+                  {r.requested_first_in ? r.requested_first_in.substring(0, 5) : '-'} to {r.requested_last_out ? r.requested_last_out.substring(0, 5) : '-'}
+                </div>
+              </td>
+              {!isHistory && <td style={styles.td}>
+                <div style={{fontSize: "13px", color: "var(--text-muted)", lineHeight: "1.5", maxWidth: "250px"}}>{r.reason}</div>
+              </td>}
+              {!isHistory && <td style={styles.td}>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0" }}>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#3b82f6', marginTop: '4px' }}></div>
+                      {r.processed_on && <div style={{ width: '2px', flexGrow: 1, backgroundColor: '#e2e8f0', minHeight: '15px', margin: '2px 0' }}></div>}
+                    </div>
+                    <div style={{ paddingBottom: r.processed_on ? '8px' : '0' }}>
+                      <div style={{ color: 'var(--text-main)', fontSize: '13px', fontWeight: '600', lineHeight: '1.2' }}>Sent</div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{new Date(r.applied_on).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
+                    </div>
+                  </div>
+                  {r.processed_on && (
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                        <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: r.status === 'APPROVED' ? '#10b981' : '#ef4444', marginTop: '4px' }}></div>
+                      </div>
+                      <div>
+                        <div style={{ color: 'var(--text-main)', fontSize: '13px', fontWeight: '600', lineHeight: '1.2' }}>Resolved</div>
+                        <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{new Date(r.processed_on).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </td>}
+              {!isHistory && <td style={styles.td}>
+                <div style={{fontSize: "13px", color: "var(--text-muted)", lineHeight: "1.5", maxWidth: "250px"}}>{r.manager_remarks || '-'}</div>
+              </td>}
+              <td style={styles.td}>
+                <span style={{...styles.badge, ...getStatusStyle(r.status)}}>
+                  {r.status === 'PENDING_MANAGER' ? 'PENDING MGR' : r.status === 'PENDING_ADMIN' ? 'PENDING ADMIN' : r.status}
+                </span>
+              </td>
+            </tr>
+          ))}
+          {data.length === 0 && (
+            <tr>
+              <td colSpan="6" style={{textAlign:"center", padding: "40px", color:"var(--text-muted)"}}>
+                <span style={{fontSize: "24px", display: "block", marginBottom: "10px"}}>📭</span>
+                No regularization requests found.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  const renderTable = (data, isHistory) => (
     <div style={{ overflowY: "auto", maxHeight: "550px" }}>
       <table style={styles.table}>
         <thead style={styles.stickyHeader}>
           <tr>
             <th style={styles.th}>Date Range</th>
             <th style={styles.th}>Leave Type</th>
-            <th style={styles.th}>Description</th>
-            <th style={styles.th}>Times</th>
-            <th style={styles.th}>Remarks</th>
+            {!isHistory && <th style={styles.th}>Description</th>}
+            {!isHistory && <th style={styles.th}>Request Tracking</th>}
+            {!isHistory && <th style={styles.th}>Remarks</th>}
             <th style={styles.th}>Status</th>
           </tr>
         </thead>
         <tbody>
           {data.map(l => {
             const portionText = l.leave_portion ? l.leave_portion.replace('_', ' ') : l.duration;
-            const portionDisplay = l.leave_portion === 'HOURLY' ? ` (${l.hourly_duration}h)` : ` (${portionText})`;
+            const hourlyText = l.leave_portion === 'HOURLY' ? ` - ${l.hourly_duration}h` : '';
             
             return (
-            <tr key={l.id} style={styles.tr}>
+            <tr key={l.id} onClick={() => isHistory && setSelectedHistory({...l, type: 'LEAVE'})} style={{...styles.tr, cursor: isHistory ? 'pointer' : 'default'}}
+                onMouseEnter={(e) => { if(isHistory) e.currentTarget.style.backgroundColor = '#f1f5f9' }}
+                onMouseLeave={(e) => { if(isHistory) e.currentTarget.style.backgroundColor = 'transparent' }}>
               <td style={styles.td}>
-                {l.start_date === l.end_date 
-                  ? new Date(l.start_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-                  : `${new Date(l.start_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} - ${new Date(l.end_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`
-                }
-                <div style={{fontSize: "12px", color: "var(--text-muted)", marginTop: "4px"}}>{l.total_days} Days</div>
+                <div style={{color: "var(--text-main)", fontWeight: "600", fontSize: "14px", whiteSpace: "nowrap"}}>
+                  {l.start_date === l.end_date 
+                    ? new Date(l.start_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+                    : `${new Date(l.start_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} - ${new Date(l.end_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`
+                  }
+                </div>
+                <div style={{fontSize: "12px", color: "#6366f1", marginTop: "6px", fontWeight: "700", backgroundColor: "#e0e7ff", display: "inline-block", padding: "2px 8px", borderRadius: "12px"}}>{l.total_days} {l.total_days === 1 || l.total_days === 0.5 ? 'Day' : 'Days'}</div>
               </td>
               <td style={styles.td}>
-                <strong style={{color: "var(--text-main)"}}>{l.leave_type_name || l.leave_type || 'Unknown'} {portionDisplay}</strong>
+                <div style={{color: "var(--text-main)", fontWeight: "700", fontSize: "14px"}}>{l.leave_type_name || l.leave_type || 'Unknown'}</div>
+                <div style={{fontSize: "12px", color: "var(--text-muted)", marginTop: "6px"}}>{portionText}{hourlyText}</div>
               </td>
-              <td style={styles.td}>
-                <div style={{fontSize: "12px", color: "var(--text-muted)"}}>
+              {!isHistory && <td style={styles.td}>
+                <div style={{fontSize: "13px", color: "var(--text-muted)", lineHeight: "1.5", maxWidth: "250px"}}>
                   {l.reason}
                 </div>
-              </td>
-              <td style={styles.td}>
-                <div style={{fontSize: "12px", color: "var(--text-muted)"}}>
-                  <div><strong>Sent:</strong> {new Date(l.applied_on).toLocaleString()}</div>
-                  {l.forwarded_at && <div><strong>Fwd:</strong> {new Date(l.forwarded_at).toLocaleString()}</div>}
-                  {l.resolved_at && <div><strong>Resolved:</strong> {new Date(l.resolved_at).toLocaleString()}</div>}
+              </td>}
+              {!isHistory && <td style={styles.td}>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0" }}>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#3b82f6', marginTop: '4px' }}></div>
+                      {(l.forwarded_at || l.resolved_at) && <div style={{ width: '2px', flexGrow: 1, backgroundColor: '#e2e8f0', minHeight: '15px', margin: '2px 0' }}></div>}
+                    </div>
+                    <div style={{ paddingBottom: (l.forwarded_at || l.resolved_at) ? '8px' : '0' }}>
+                      <div style={{ color: 'var(--text-main)', fontSize: '13px', fontWeight: '600', lineHeight: '1.2' }}>Sent</div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{new Date(l.applied_on).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
+                    </div>
+                  </div>
+                  {l.forwarded_at && (
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                        <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#8b5cf6', marginTop: '4px' }}></div>
+                        {l.resolved_at && <div style={{ width: '2px', flexGrow: 1, backgroundColor: '#e2e8f0', minHeight: '15px', margin: '2px 0' }}></div>}
+                      </div>
+                      <div style={{ paddingBottom: l.resolved_at ? '8px' : '0' }}>
+                        <div style={{ color: 'var(--text-main)', fontSize: '13px', fontWeight: '600', lineHeight: '1.2' }}>Forwarded by Mgr</div>
+                        <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{new Date(l.forwarded_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
+                      </div>
+                    </div>
+                  )}
+                  {l.resolved_at && (
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                        <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: l.status === 'APPROVED' ? '#10b981' : '#ef4444', marginTop: '4px' }}></div>
+                      </div>
+                      <div>
+                        <div style={{ color: 'var(--text-main)', fontSize: '13px', fontWeight: '600', lineHeight: '1.2' }}>Resolved</div>
+                        <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{new Date(l.resolved_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </td>
-              <td style={styles.td}>
-                <div style={{fontSize: "12px", color: "var(--text-muted)"}}>
+              </td>}
+              {!isHistory && <td style={styles.td}>
+                <div style={{fontSize: "13px", color: "var(--text-muted)", lineHeight: "1.5", maxWidth: "250px"}}>
                   {l.resolution_remarks ? l.resolution_remarks : '-'}
                 </div>
-              </td>
+              </td>}
               <td style={styles.td}>
                 <span style={{...styles.badge, ...getStatusStyle(l.status)}}>
                   {l.status === 'PENDING' && l.pending_manager_name ? `PENDING MGR (${l.pending_manager_name}${l.pending_manager_level ? ` - ${l.pending_manager_level}` : ''})` :
@@ -218,19 +360,42 @@ const RequestLeave = () => {
         <div style={styles.contentPadding}>
           
           <div style={styles.headerSection}>
-            <h2 style={styles.pageTitle}>Leave Management</h2>
-            <p style={styles.pageSubtitle}>Apply for time off and track your request history.</p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h2 style={styles.pageTitle}>My Requests</h2>
+                <p style={styles.pageSubtitle}>Apply for time off and track your request history.</p>
+              </div>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button 
+                  onClick={() => setShowApplyModal(true)} 
+                  style={{...styles.activeTabBtn, backgroundColor: '#10b981'}}
+                >+ Apply for Leave</button>
+              </div>
+            </div>
+            
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '25px', marginTop: '10px' }}>
+              <button 
+                onClick={() => setViewMode('LEAVE')} 
+                style={viewMode === 'LEAVE' ? styles.activeTabBtn : styles.inactiveTabBtn}
+              >Leave Requests</button>
+              <button 
+                onClick={() => setViewMode('REGULARIZATION')} 
+                style={viewMode === 'REGULARIZATION' ? styles.activeTabBtn : styles.inactiveTabBtn}
+              >Regularization Requests</button>
+            </div>
           </div>
 
-          <div style={styles.gridContainer}>
+          <div style={{width: '100%'}}>
             
-            {/* LEFT COLUMN: Apply Form */}
-            <div style={styles.card}>
-              <div style={styles.cardHeader}>
-                <h3 style={styles.cardTitle}>Submit Leave Application</h3>
-              </div>
+            {showApplyModal && (
+            <div style={styles.modalOverlay}>
+              <div style={{...styles.card, width: '90%', maxWidth: '500px', maxHeight: '90vh', overflowY: 'auto'}}>
+                <div style={{...styles.cardHeader, display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                  <h3 style={styles.cardTitle}>Submit Leave Application</h3>
+                  <button onClick={() => setShowApplyModal(false)} style={styles.closeBtn}>&times;</button>
+                </div>
               
-              <div style={styles.cardBody}>
+                <div style={styles.cardBody}>
                 {msg.text && (
                   <div style={msg.type === "error" ? styles.errorMsg : styles.successMsg}>{msg.text}</div>
                 )}
@@ -342,9 +507,11 @@ const RequestLeave = () => {
                   <button type="submit" style={styles.submitBtn}>Submit Application</button>
                 </form>
               </div>
+              </div>
             </div>
+            )}
 
-            {/* RIGHT COLUMN: History Table */}
+            {/* FULL WIDTH: History Table */}
             <div style={styles.card}>
               <div style={styles.cardHeader}>
                 <div style={{display: 'flex', gap: '20px', alignItems: 'center'}}>
@@ -363,26 +530,92 @@ const RequestLeave = () => {
                 </div>
               </div>
               <div style={styles.cardBodyTable}>
-                {activeTab === 'ONGOING' ? renderTable(ongoingLeaves) : renderTable(historyLeaves)}
+                {viewMode === 'LEAVE' ? 
+                  (activeTab === 'ONGOING' ? renderTable(ongoingLeaves, false) : renderTable(historyLeaves, true)) : 
+                  (activeTab === 'ONGOING' ? renderRegTable(ongoingRegs, false) : renderRegTable(historyRegs, true))
+                }
               </div>
             </div>
 
           </div>
         </div>
       </div>
+      
+      {selectedHistory && (
+        <div style={styles.modalOverlay} onClick={() => setSelectedHistory(null)}>
+          <div style={{...styles.card, width: '90%', maxWidth: '500px'}} onClick={e => e.stopPropagation()}>
+            <div style={{...styles.cardHeader, display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+              <h3 style={styles.cardTitle}>Request Details</h3>
+              <button onClick={() => setSelectedHistory(null)} style={styles.closeBtn}>&times;</button>
+            </div>
+            <div style={{padding: '25px', display: 'flex', flexDirection: 'column', gap: '20px'}}>
+              <div>
+                <strong style={{display: 'block', marginBottom: '8px', color: '#475569'}}>Reason</strong>
+                <div style={{backgroundColor: '#f8fafc', padding: '12px', borderRadius: '8px', color: '#334155', lineHeight: '1.5'}}>{selectedHistory.reason}</div>
+              </div>
+              <div>
+                <strong style={{display: 'block', marginBottom: '8px', color: '#475569'}}>Tracking Timeline</strong>
+                <div style={{backgroundColor: '#f8fafc', padding: '15px', borderRadius: '8px'}}>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#3b82f6', marginTop: '4px' }}></div>
+                      {(selectedHistory.forwarded_at || selectedHistory.resolved_at || selectedHistory.processed_on) && <div style={{ width: '2px', flexGrow: 1, backgroundColor: '#e2e8f0', minHeight: '15px', margin: '2px 0' }}></div>}
+                    </div>
+                    <div style={{ paddingBottom: (selectedHistory.forwarded_at || selectedHistory.resolved_at || selectedHistory.processed_on) ? '8px' : '0' }}>
+                      <div style={{ color: 'var(--text-main)', fontSize: '13px', fontWeight: '600', lineHeight: '1.2' }}>Sent</div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{new Date(selectedHistory.applied_on).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
+                    </div>
+                  </div>
+                  {selectedHistory.forwarded_at && (
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                        <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#8b5cf6', marginTop: '4px' }}></div>
+                        {selectedHistory.resolved_at && <div style={{ width: '2px', flexGrow: 1, backgroundColor: '#e2e8f0', minHeight: '15px', margin: '2px 0' }}></div>}
+                      </div>
+                      <div style={{ paddingBottom: selectedHistory.resolved_at ? '8px' : '0' }}>
+                        <div style={{ color: 'var(--text-main)', fontSize: '13px', fontWeight: '600', lineHeight: '1.2' }}>Forwarded by Mgr</div>
+                        <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{new Date(selectedHistory.forwarded_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
+                      </div>
+                    </div>
+                  )}
+                  {(selectedHistory.resolved_at || selectedHistory.processed_on) && (
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                        <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: selectedHistory.status === 'APPROVED' ? '#10b981' : '#ef4444', marginTop: '4px' }}></div>
+                      </div>
+                      <div>
+                        <div style={{ color: 'var(--text-main)', fontSize: '13px', fontWeight: '600', lineHeight: '1.2' }}>Resolved</div>
+                        <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{new Date(selectedHistory.resolved_at || selectedHistory.processed_on).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div>
+                <strong style={{display: 'block', marginBottom: '8px', color: '#475569'}}>Remarks</strong>
+                <div style={{backgroundColor: '#f8fafc', padding: '12px', borderRadius: '8px', color: '#334155', lineHeight: '1.5'}}>{selectedHistory.resolution_remarks || selectedHistory.manager_remarks || '-'}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 // Styles
 const styles = {
+  activeTabBtn: { backgroundColor: 'var(--primary)', color: 'white', border: 'none', padding: '10px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' },
+  inactiveTabBtn: { backgroundColor: '#e2e8f0', color: '#475569', border: 'none', padding: '10px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' },
+  modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
+  closeBtn: { background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer', color: '#64748b' },
   layout: { display: "flex", minHeight: "100vh", backgroundColor: "#f8fafc" },
   main: { flexGrow: 1, marginLeft: "260px" },
   contentPadding: { padding: "30px 40px" },
   
   headerSection: { marginBottom: "30px" },
-  pageTitle: { margin: "0 0 5px 0", fontSize: "24px", color: "var(--text-main)", fontWeight: "700" },
-  pageSubtitle: { margin: "0", fontSize: "14px", color: "var(--text-muted)" },
+  pageTitle: { margin: "0 0 8px 0", fontSize: "24px", color: "var(--text-main)", fontWeight: "700" },
+  pageSubtitle: { margin: "0", fontSize: "14px", color: "var(--text-muted)", marginBottom: "15px" },
 
   gridContainer: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(450px, 1fr))", gap: "30px" },
   
@@ -404,9 +637,9 @@ const styles = {
   
   table: { width: "100%", borderCollapse: "collapse" },
   stickyHeader: { position: "sticky", top: 0, backgroundColor: "#f8fafc", zIndex: 1 },
-  th: { padding: "16px 25px", backgroundColor: "#f8fafc", fontSize: "13px", color: "var(--text-muted)", borderBottom: "1px solid var(--border)", textAlign: "left", textTransform: "uppercase", fontWeight: "600" },
-  tr: { borderBottom: "1px solid var(--border)", transition: "background-color 0.2s" },
-  td: { padding: "16px 25px", color: "var(--text-main)", fontSize: "14px", verticalAlign: "middle" },
+  th: { padding: "18px 25px", backgroundColor: "#f8fafc", fontSize: "13px", color: "var(--text-muted)", borderBottom: "1px solid #e2e8f0", textAlign: "left", textTransform: "uppercase", fontWeight: "700", letterSpacing: "0.5px" },
+  tr: { borderBottom: "1px solid #f1f5f9", transition: "background-color 0.2s" },
+  td: { padding: "16px 20px", color: "var(--text-main)", fontSize: "14px", verticalAlign: "middle" },
   
   badge: { padding: "6px 12px", borderRadius: "20px", fontSize: "12px", fontWeight: "600", display: "inline-block" },
   badgeSuccess: { backgroundColor: "#dcfce7", color: "#166534" },
@@ -414,7 +647,21 @@ const styles = {
   badgeWarning: { backgroundColor: "#fef3c7", color: "#92400e" },
 
   successMsg: { padding: "14px", backgroundColor: "#f0fdf4", color: "#166534", borderRadius: "8px", fontSize: "14px", marginBottom: "20px", border: "1px solid #bbf7d0", fontWeight: "500" },
-  errorMsg: { padding: "14px", backgroundColor: "#fef2f2", color: "#991b1b", borderRadius: "8px", fontSize: "14px", marginBottom: "20px", border: "1px solid #fecaca", fontWeight: "500" }
+  errorMsg: { padding: "14px", backgroundColor: "#fef2f2", color: "#991b1b", borderRadius: "8px", fontSize: "14px", marginBottom: "20px", border: "1px solid #fecaca", fontWeight: "500" },
+  infoIcon: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '16px',
+    height: '16px',
+    borderRadius: '50%',
+    backgroundColor: '#e2e8f0',
+    color: '#64748b',
+    fontSize: '10px',
+    fontWeight: 'bold',
+    cursor: 'help',
+    fontStyle: 'italic'
+  }
 };
 
 export default RequestLeave;

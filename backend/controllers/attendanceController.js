@@ -147,6 +147,7 @@ async function processAndSaveSummaries(scans, settings, empIdMap, holidayMap, le
 
   // Group scans by employee_id + logical date
   const dailySummaries = {};
+  const uniqueDates = new Set();
   for (const { employee_id, scan_time } of scans) {
     const empInfo = empIdMap[employee_id];
     if (!empInfo) continue;
@@ -165,11 +166,22 @@ async function processAndSaveSummaries(scans, settings, empIdMap, holidayMap, le
     }
 
     const dateKey = `${logicalDateObj.getFullYear()}-${String(logicalDateObj.getMonth() + 1).padStart(2, '0')}-${String(logicalDateObj.getDate()).padStart(2, '0')}`;
+    uniqueDates.add(dateKey);
     const key = `${employee_id}_${dateKey}`;
     if (!dailySummaries[key]) {
       dailySummaries[key] = { employee_id, attendance_date: dateKey, scans: [] };
     }
     dailySummaries[key].scans.push(scan_time);
+  }
+
+  // Generate blank records for all active employees for all processed dates
+  for (const dateKey of uniqueDates) {
+    for (const empId in empIdMap) {
+      const key = `${empId}_${dateKey}`;
+      if (!dailySummaries[key]) {
+        dailySummaries[key] = { employee_id: parseInt(empId, 10), attendance_date: dateKey, scans: [] };
+      }
+    }
   }
 
   let count = 0;
@@ -220,8 +232,7 @@ async function processAndSaveSummaries(scans, settings, empIdMap, holidayMap, le
     const isWeekend    = !workingDays.includes(refDate.getDay());
     const approvedLeave = leaveMap[record.employee_id]?.[record.attendance_date];
 
-    const mode = settings.calculation_mode || 'WORKING_HOURS';
-    const { core_status, modifier_flags } = ruleEngine.calculateAttendance(mode, {
+    const { core_status, modifier_flags } = ruleEngine.calculateAttendance({
       firstIn, lastOut, workingHours,
       expectedStartDate, expectedEndDate, halfDayThresholdDate,
       maxGraceDate, requiredHours, isWeekend, holidayName, approvedLeave
@@ -280,6 +291,23 @@ exports.requestRegularization = async (req, res) => {
   }
 };
 
+exports.getMyRegularizations = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(`
+      SELECT r.*, a.attendance_date, a.core_status, a.modifier_flags
+      FROM regularization_requests r
+      JOIN attendance_summary a ON r.attendance_summary_id = a.id
+      WHERE r.employee_id = $1
+      ORDER BY r.applied_on DESC
+    `, [id]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Failed to fetch my regularizations:", err);
+    res.status(500).json({ error: "Failed to fetch my regularizations." });
+  }
+};
+
 exports.getAllRegularizations = async (req, res) => {
   try {
     const { requester_id, is_super_admin } = req.query;
@@ -294,10 +322,13 @@ exports.getAllRegularizations = async (req, res) => {
     const result = await pool.query(`
       SELECT r.*, e.name as employee_name, e.employee_code, m.name as forwarded_by_name,
              e.manager_id as employee_manager_id,
-             m.manager_id as forwarder_manager_id
+             m.manager_id as forwarder_manager_id,
+             ans.first_in as actual_first_in, ans.last_out as actual_last_out,
+             ans.attendance_date, ans.core_status, ans.modifier_flags
       FROM regularization_requests r
       JOIN employees e ON r.employee_id = e.id
       LEFT JOIN employees m ON r.forwarded_by_id = m.id
+      LEFT JOIN attendance_summary ans ON r.attendance_summary_id = ans.id
       ${whereClause}
       ORDER BY r.applied_on ASC
     `, queryParams);
@@ -305,6 +336,79 @@ exports.getAllRegularizations = async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch regularizations." });
   }
+};
+
+const recalculateDailyAttendance = async (employee_id, dateKey, firstIn, lastOut, workingHours) => {
+  // Fetch global settings
+  const settingsRes = await pool.query("SELECT * FROM company_settings LIMIT 1");
+  const settings = settingsRes.rows[0] || {
+    shift_start_time: '09:00:00', shift_end_time: '18:00:00',
+    grace_period_minutes: 15, required_working_hours: 8
+  };
+
+  // Fetch employee shift details
+  const empRes = await pool.query(`
+    SELECT e.id, s.shift_start_time, s.shift_end_time, s.grace_period_minutes, s.required_working_hours, s.half_day_mark_time
+    FROM employees e
+    LEFT JOIN shifts s ON e.shift_id = s.id
+    WHERE e.id = $1
+  `, [employee_id]);
+  const empInfo = empRes.rows[0];
+
+  // Fetch holiday map
+  const holidaysRes = await pool.query("SELECT holiday_date, description FROM company_holidays");
+  const holidayMap = {};
+  holidaysRes.rows.forEach(h => {
+    holidayMap[h.holiday_date.toISOString().split('T')[0]] = h.description;
+  });
+
+  // Fetch leaves
+  const leavesRes = await pool.query(`
+    SELECT employee_id, start_date, end_date, duration, leave_portion 
+    FROM leave_requests WHERE status = 'APPROVED' AND employee_id = $1
+  `, [employee_id]);
+  const leaveMap = {};
+  leavesRes.rows.forEach(l => {
+    let current = new Date(l.start_date);
+    const end = new Date(l.end_date);
+    while (current <= end) {
+      const dStr = current.toISOString().split('T')[0];
+      leaveMap[dStr] = { duration: l.duration, leave_portion: l.leave_portion };
+      current.setDate(current.getDate() + 1);
+    }
+  });
+
+  // Set up timings
+  const shiftStartTime  = empInfo?.shift_start_time  || settings.shift_start_time  || '09:00:00';
+  const gracePeriod     = (empInfo?.grace_period_minutes  != null) ? empInfo.grace_period_minutes  : settings.grace_period_minutes;
+  const requiredHours   = (empInfo?.required_working_hours != null) ? parseFloat(empInfo.required_working_hours) : parseFloat(settings.required_working_hours);
+  const shiftEndHrStr   = empInfo?.shift_end_time    || settings.shift_end_time    || '18:00:00';
+  const halfDayMark     = empInfo?.half_day_mark_time || '13:00:00';
+
+  const [logicalYear, logicalMonth, logicalDay] = dateKey.split('-').map(Number);
+  const [sHr, sMin] = shiftStartTime.split(':').map(Number);
+  const [eHr, eMin] = shiftEndHrStr.split(':').map(Number);
+  const [hHr, hMin] = halfDayMark.split(':').map(Number);
+
+  const expectedStartDate      = new Date(logicalYear, logicalMonth - 1, logicalDay, sHr, sMin, 0);
+  const maxGraceDate           = new Date(expectedStartDate.getTime() + gracePeriod * 60000);
+  const expectedEndDate        = new Date(logicalYear, logicalMonth - 1, logicalDay, eHr, eMin, 0);
+  const halfDayThresholdDate   = new Date(logicalYear, logicalMonth - 1, logicalDay, hHr, hMin, 0);
+  const refDate                = new Date(logicalYear, logicalMonth - 1, logicalDay);
+
+  const holidayName  = holidayMap[dateKey];
+  const workingDays  = settings.working_days || [1, 2, 3, 4, 5, 6];
+  const isWeekend    = !workingDays.includes(refDate.getDay());
+  const approvedLeave = leaveMap[dateKey];
+
+  const firstInDate = firstIn ? new Date(`${dateKey}T${firstIn}Z`) : null;
+  const lastOutDate = lastOut ? new Date(`${dateKey}T${lastOut}Z`) : null;
+
+  return ruleEngine.calculateAttendance({
+    firstIn: firstInDate, lastOut: lastOutDate, workingHours,
+    expectedStartDate, expectedEndDate, halfDayThresholdDate,
+    maxGraceDate, requiredHours, isWeekend, holidayName, approvedLeave
+  });
 };
 
 exports.processRegularization = async (req, res) => {
@@ -344,18 +448,49 @@ exports.processRegularization = async (req, res) => {
           workingHours = parseFloat(((lastOutDate - firstInDate) / (1000 * 60 * 60)).toFixed(2));
         }
 
-        let coreStatus = summary.core_status;
-        if (coreStatus === 'MISSING_PUNCH') {
-          coreStatus = 'PRESENT';
+        let oldCoreStatus = summary.core_status;
+        
+        // Re-evaluate attendance using requested times
+        const dateKey = summary.attendance_date.toISOString().split('T')[0];
+        const fIn = requested_first_in || summary.first_in;
+        const lOut = requested_last_out || summary.last_out;
+        
+        const { core_status: calculatedCoreStatus, modifier_flags: calculatedFlags } = await recalculateDailyAttendance(
+          summary.employee_id, dateKey, fIn, lOut, workingHours
+        );
+
+        let coreStatus = calculatedCoreStatus;
+        let newFlags = calculatedFlags || [];
+
+        let oldFlags = [];
+        try {
+            if (summary.modifier_flags) {
+                oldFlags = typeof summary.modifier_flags === 'string' ? JSON.parse(summary.modifier_flags) : summary.modifier_flags;
+            }
+        } catch(e) {}
+        
+        // Preserve PREV_ flags from earlier regularizations
+        oldFlags.forEach(f => {
+          if (f.startsWith('PREV_') && !newFlags.includes(f)) {
+            newFlags.push(f);
+          }
+        });
+
+        if (!newFlags.includes('REGULARIZED')) newFlags.push('REGULARIZED');
+        
+        if (oldCoreStatus !== coreStatus) {
+            newFlags.push('PREV_' + oldCoreStatus);
         }
+        if (oldFlags.includes('LATE') && !newFlags.includes('LATE')) newFlags.push('PREV_LATE');
+        if (oldFlags.includes('EARLY_EXIT') && !newFlags.includes('EARLY_EXIT')) newFlags.push('PREV_EARLY_EXIT');
 
         await pool.query(
-          `UPDATE attendance_summary 
-           SET first_in = $1, last_out = $2, working_hours = $3, core_status = $4, 
+          `UPDATE attendance_summary
+           SET first_in = $1, last_out = $2, working_hours = $3, core_status = $4,
                regularization_status = 'APPROVED', regularization_manager_id = $5,
-               modifier_flags = COALESCE(modifier_flags, '[]'::jsonb) || '["REGULARIZED"]'::jsonb
-           WHERE id = $6`,
-          [requested_first_in || summary.first_in, requested_last_out || summary.last_out, workingHours, coreStatus, processed_by, attendance_summary_id]
+               modifier_flags = $6::jsonb
+           WHERE id = $7`,
+          [fIn, lOut, workingHours, coreStatus, processed_by, JSON.stringify(newFlags), attendance_summary_id]
         );
       }
     } else {

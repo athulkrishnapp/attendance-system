@@ -24,6 +24,12 @@ const ApprovalsInbox = () => {
   const [rejectId, setRejectId] = useState(null);
   const [rejectReason, setRejectReason] = useState("");
 
+  // Approve Modal State (Shared)
+  const [showApproveModal, setShowApproveModal] = useState(false);
+  const [approveType, setApproveType] = useState("");
+  const [approveId, setApproveId] = useState(null);
+  const [approveRemarks, setApproveRemarks] = useState("");
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -49,14 +55,30 @@ const ApprovalsInbox = () => {
   };
 
   // Status and Action Handlers
-  const handleApproveLeave = async (id) => {
-    const remarks = window.prompt("Enter approval remarks (optional):");
-    if (remarks === null) return; // Cancelled
+  const openApproveModal = (type, id) => {
+    setApproveType(type);
+    setApproveId(id);
+    setApproveRemarks("");
+    setShowApproveModal(true);
+  };
+
+  const handleApproveSubmit = async (e) => {
+    e.preventDefault();
     try {
-      await api.leaveRequests.approve(id, { resolver_id: user.id, remarks });
+      if (approveType === 'leave') {
+        await api.leaveRequests.approve(approveId, { resolver_id: user.id, remarks: approveRemarks || 'Approved' });
+      } else if (approveType === 'regularization') {
+        await api.regularizations.process(approveId, { 
+          status: 'APPROVED', 
+          manager_remarks: approveRemarks || 'Approved', 
+          processed_by: user.id 
+        });
+      }
+      setShowApproveModal(false);
       fetchData();
     } catch (err) { alert("Failed to approve request"); }
   };
+
   const handleForwardLeave = async (id) => {
     try {
       await api.leaveRequests.forward(id, { manager_id: user.id });
@@ -64,12 +86,6 @@ const ApprovalsInbox = () => {
     } catch (err) { alert("Failed to forward request"); }
   };
 
-  const handleApproveReg = async (id) => {
-    try {
-      await api.regularizations.process(id, { status: 'APPROVED', manager_remarks: 'Approved', processed_by: user.id });
-      fetchData();
-    } catch (err) { alert("Failed to process regularization"); }
-  };
   const handleForwardReg = async (id, attendance_summary_id) => {
     try {
       await api.regularizations.forward(id, { manager_id: user.id, attendance_summary_id });
@@ -220,9 +236,9 @@ const ApprovalsInbox = () => {
                   {activeTab === 'regularizations' && (
                     <tr>
                       <th style={styles.th}>Employee</th>
-                      <th style={styles.th}>Date</th>
-                      <th style={styles.th}>Actual Swipes</th>
-                      <th style={styles.th}>Requested Times</th>
+                      <th style={styles.th}>Date & Problem</th>
+                      <th style={styles.th}>Description (Reason)</th>
+                      <th style={styles.th}>Actual vs Requested</th>
                       <th style={styles.th}>Status</th>
                       <th style={styles.th}>Actions</th>
                     </tr>
@@ -298,14 +314,57 @@ const ApprovalsInbox = () => {
 
                       {activeTab === 'regularizations' && (
                         <>
-                          <td style={styles.td}>{new Date(item.attendance_date || item.applied_on).toLocaleDateString()}</td>
                           <td style={styles.td}>
-                            In: {item.actual_first_in || '-'} <br/>
-                            Out: {item.actual_last_out || '-'}
+                            <div style={{fontWeight: "600"}}>{new Date(item.attendance_date || item.applied_on).toLocaleDateString()}</div>
+                            {(() => {
+                              let prevFlags = [];
+                              let currentFlags = [];
+                              try {
+                                const mFlags = Array.isArray(item.modifier_flags) ? item.modifier_flags : (item.modifier_flags && String(item.modifier_flags).trim() !== '{}' ? JSON.parse(String(item.modifier_flags).replace(/[{}]/g, '[]')) : []);
+                                // Quick fix for Postgres string representations if it's "{LATE}" we should parse it correctly, but let's assume it's just JSON or array in our backend change.
+                                // Actually backend now returns JSON.
+                                const safeFlags = Array.isArray(mFlags) ? mFlags : (typeof item.modifier_flags === 'string' ? item.modifier_flags.replace(/[{}]/g, '').split(',').map(s=>s.trim()).filter(Boolean) : []);
+                                prevFlags = safeFlags.filter(f => f.startsWith('PREV_')).map(f => f.replace('PREV_', ''));
+                                currentFlags = safeFlags.filter(f => !f.startsWith('PREV_'));
+                              } catch(e) {}
+                              
+                              const currentStatus = item.core_status;
+                              return (
+                                <>
+                                  {currentStatus && (
+                                    <div style={{marginTop: "4px"}}>
+                                      <span style={{fontSize: "11px", backgroundColor: "#fee2e2", color: "#991b1b", padding: "2px 6px", borderRadius: "12px", fontWeight: "bold"}}>
+                                        {prevFlags.length > 0 ? (
+                                          <><span style={{ textDecoration: 'line-through', opacity: 0.7, marginRight: '4px' }}>{prevFlags.join(', ')}</span> → {currentStatus}</>
+                                        ) : currentStatus}
+                                      </span>
+                                    </div>
+                                  )}
+                                  {currentFlags.length > 0 && (
+                                    <div style={{marginTop: "2px", fontSize: "11px", color: "#b91c1c"}}>
+                                      {currentFlags.join(', ')}
+                                    </div>
+                                  )}
+                                </>
+                              );
+                            })()}
                           </td>
                           <td style={styles.td}>
-                            In: <strong>{item.requested_first_in || '-'}</strong> <br/>
-                            Out: <strong>{item.requested_last_out || '-'}</strong>
+                            <div style={{fontSize: "13px", maxWidth: "200px", whiteSpace: "normal", wordWrap: "break-word"}}>{item.reason}</div>
+                          </td>
+                          <td style={styles.td}>
+                            <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", fontSize: "12px", backgroundColor: "#f8fafc", padding: "8px", borderRadius: "6px"}}>
+                              <div>
+                                <div style={{color: "var(--text-muted)", marginBottom: "2px", fontSize: "11px"}}>Actual</div>
+                                <div>In: {item.actual_first_in ? item.actual_first_in.substring(0,5) : '-'}</div>
+                                <div>Out: {item.actual_last_out ? item.actual_last_out.substring(0,5) : '-'}</div>
+                              </div>
+                              <div>
+                                <div style={{color: "var(--text-muted)", marginBottom: "2px", fontSize: "11px"}}>Requested</div>
+                                <div style={{fontWeight: "bold", color: "var(--primary)"}}>In: {item.requested_first_in ? item.requested_first_in.substring(0,5) : '-'}</div>
+                                <div style={{fontWeight: "bold", color: "var(--primary)"}}>Out: {item.requested_last_out ? item.requested_last_out.substring(0,5) : '-'}</div>
+                              </div>
+                            </div>
                           </td>
                         </>
                       )}
@@ -331,8 +390,8 @@ const ApprovalsInbox = () => {
                           <div style={{ display: 'flex', gap: '8px' }}>
                             {(isSuperAdmin || isSubAdmin) && (
                               <button style={styles.approveBtn} onClick={() => {
-                                if(activeTab==='leaves') handleApproveLeave(item.id);
-                                else if(activeTab==='regularizations') handleApproveReg(item.id);
+                                if(activeTab==='leaves') openApproveModal('leave', item.id);
+                                else if(activeTab==='regularizations') openApproveModal('regularization', item.id);
                                 else handleBalanceAction(item.id, 'APPROVED');
                               }}>Approve</button>
                             )}
@@ -376,6 +435,24 @@ const ApprovalsInbox = () => {
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
               <button onClick={() => setShowRejectModal(false)} style={styles.cancelBtn}>Cancel</button>
               <button onClick={handleRejectSubmit} style={styles.rejectModalBtn}>Confirm Reject</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showApproveModal && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modalContent}>
+            <h3>Approve Request</h3>
+            <textarea
+              value={approveRemarks}
+              onChange={(e) => setApproveRemarks(e.target.value)}
+              placeholder="Approval remarks (optional)..."
+              style={{...styles.input, width: '100%', height: '100px', marginBottom: '15px', resize: 'none'}}
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button onClick={() => setShowApproveModal(false)} style={styles.cancelBtn}>Cancel</button>
+              <button onClick={handleApproveSubmit} style={{...styles.approveBtn, padding: '10px 16px'}}>Confirm Approve</button>
             </div>
           </div>
         </div>

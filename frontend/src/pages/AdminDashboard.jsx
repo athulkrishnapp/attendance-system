@@ -5,7 +5,7 @@ import Navbar from "../components/Navbar";
 
 const AdminDashboard = () => {
   // New state for the graph (present vs total)
-  const [attendanceStats, setAttendanceStats] = useState({ present: 0, total: 0 });
+  const [attendanceStats, setAttendanceStats] = useState({ present: 0, missing_punch: 0, half_day: 0, leave: 0, absent: 0, total: 0 });
   const [file, setFile] = useState(null);
   const [uploadStatus, setUploadStatus] = useState({ loading: false, message: "", error: false });
   
@@ -62,7 +62,11 @@ const AdminDashboard = () => {
       const res = await API.get("/reports/dashboard");
       // Simulated or real response mapping for the graph
       setAttendanceStats({
-        present: res.data.yesterdayPresent || 0,
+        present: res.data.present || 0,
+        missing_punch: res.data.missing_punch || 0,
+        half_day: res.data.half_day || 0,
+        leave: res.data.leave || 0,
+        absent: res.data.absent || 0,
         total: res.data.totalEmployees || 0
       });
     } catch (err) {
@@ -188,10 +192,12 @@ const AdminDashboard = () => {
   const uniqueShifts = useMemo(() => Array.from(new Set(dailyAttendance.map(r => r.shift_name).filter(Boolean))), [dailyAttendance]);
   const uniqueDepts = useMemo(() => Array.from(new Set(dailyAttendance.map(r => r.department_name).filter(Boolean))), [dailyAttendance]);
 
-  // Safe percentage calculation for the graph
-  const presentPct = attendanceStats.total > 0 ? Math.round((attendanceStats.present / attendanceStats.total) * 100) : 0;
-  const absentPct = 100 - presentPct;
-
+  const { total, present, absent, half_day, leave, missing_punch } = attendanceStats;
+  const presentPct = total > 0 ? Math.round((present / total) * 100) : 0;
+  const absentPct = total > 0 ? Math.round((absent / total) * 100) : 0;
+  const halfDayPct = total > 0 ? Math.round((half_day / total) * 100) : 0;
+  const leavePct = total > 0 ? Math.round((leave / total) * 100) : 0;
+  const missingPunchPct = total > 0 ? Math.round((missing_punch / total) * 100) : 0;
   return (
     <div style={styles.layout}>
       <Sidebar />
@@ -249,23 +255,54 @@ const AdminDashboard = () => {
               <div style={styles.graphContainer}>
                 {/* Scalable Bar Chart */}
                 <div style={styles.barChartWrapper}>
-                  <div style={{...styles.barSegment, backgroundColor: '#22c55e', width: `${presentPct}%`}}>
-                    {presentPct > 10 && <span style={styles.barText}>{presentPct}%</span>}
-                  </div>
-                  <div style={{...styles.barSegment, backgroundColor: '#f87171', width: `${absentPct}%`}}>
-                    {absentPct > 10 && <span style={styles.barText}>{absentPct}%</span>}
-                  </div>
+                  {presentPct > 0 && (
+                    <div style={{...styles.barSegment, backgroundColor: '#22c55e', width: `${presentPct}%`}} title={`Present: ${presentPct}%`}>
+                      {presentPct > 10 && <span style={styles.barText}>{presentPct}%</span>}
+                    </div>
+                  )}
+                  {missingPunchPct > 0 && (
+                    <div style={{...styles.barSegment, backgroundColor: '#a855f7', width: `${missingPunchPct}%`}} title={`Missing Punch: ${missingPunchPct}%`}>
+                      {missingPunchPct > 10 && <span style={styles.barText}>{missingPunchPct}%</span>}
+                    </div>
+                  )}
+                  {halfDayPct > 0 && (
+                    <div style={{...styles.barSegment, backgroundColor: '#eab308', width: `${halfDayPct}%`}} title={`Half Day: ${halfDayPct}%`}>
+                      {halfDayPct > 10 && <span style={styles.barText}>{halfDayPct}%</span>}
+                    </div>
+                  )}
+                  {leavePct > 0 && (
+                    <div style={{...styles.barSegment, backgroundColor: '#38bdf8', width: `${leavePct}%`}} title={`Leave: ${leavePct}%`}>
+                      {leavePct > 10 && <span style={styles.barText}>{leavePct}%</span>}
+                    </div>
+                  )}
+                  {absentPct > 0 && (
+                    <div style={{...styles.barSegment, backgroundColor: '#ef4444', width: `${absentPct}%`}} title={`Absent: ${absentPct}%`}>
+                      {absentPct > 10 && <span style={styles.barText}>{absentPct}%</span>}
+                    </div>
+                  )}
                 </div>
                 
                 {/* Graph Legend */}
-                <div style={styles.graphLegend}>
+                <div style={{...styles.graphLegend, flexWrap: 'wrap', gap: '10px', justifyContent: 'center'}}>
                   <div style={styles.graphLegendItem}>
                     <span style={{...styles.colorDot, backgroundColor: '#22c55e'}}></span> 
-                    <strong>{attendanceStats.present}</strong> Present
+                    <strong>{present}</strong> Present
                   </div>
                   <div style={styles.graphLegendItem}>
-                    <span style={{...styles.colorDot, backgroundColor: '#f87171'}}></span> 
-                    <strong>{attendanceStats.total - attendanceStats.present}</strong> Absent
+                    <span style={{...styles.colorDot, backgroundColor: '#a855f7'}}></span> 
+                    <strong>{missing_punch}</strong> Missing Punch
+                  </div>
+                  <div style={styles.graphLegendItem}>
+                    <span style={{...styles.colorDot, backgroundColor: '#eab308'}}></span> 
+                    <strong>{half_day}</strong> Half Day
+                  </div>
+                  <div style={styles.graphLegendItem}>
+                    <span style={{...styles.colorDot, backgroundColor: '#38bdf8'}}></span> 
+                    <strong>{leave}</strong> Leave
+                  </div>
+                  <div style={styles.graphLegendItem}>
+                    <span style={{...styles.colorDot, backgroundColor: '#ef4444'}}></span> 
+                    <strong>{absent}</strong> Absent
                   </div>
                 </div>
               </div>

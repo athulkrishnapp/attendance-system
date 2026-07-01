@@ -13,12 +13,11 @@ exports.getSettings = async (req, res) => {
 
 exports.updateSettings = async (req, res) => {
   try {
-    const { shift_start_time, shift_end_time, grace_period_minutes, required_working_hours, casual_leave_notice_days, financial_year_start_month, financial_year_end_month, working_days, calculation_mode, visible_flags } = req.body;
-    await pool.query(
+    const { shift_start_time, shift_end_time, grace_period_minutes, required_working_hours, casual_leave_notice_days, financial_year_start_month, financial_year_end_month, working_days, visible_flags } = req.body;    await pool.query(
       `UPDATE company_settings 
-       SET shift_start_time=$1, shift_end_time=$2, grace_period_minutes=$3, required_working_hours=$4, casual_leave_notice_days=$5, financial_year_start_month=$6, financial_year_end_month=$7, working_days=$8, calculation_mode=$9, visible_flags=$10
+       SET shift_start_time=$1, shift_end_time=$2, grace_period_minutes=$3, required_working_hours=$4, casual_leave_notice_days=$5, financial_year_start_month=$6, financial_year_end_month=$7, working_days=$8, visible_flags=$9
        WHERE id=1`,
-      [shift_start_time, shift_end_time, grace_period_minutes, required_working_hours, casual_leave_notice_days || 0, financial_year_start_month || 1, financial_year_end_month || 12, working_days || [1,2,3,4,5,6], calculation_mode || 'WORKING_HOURS', visible_flags || ['LATE', 'EARLY_EXIT', 'OVERTIME', 'FIRST_HALF', 'SECOND_HALF', 'WEEKEND_WORK', 'HOLIDAY_WORK', 'HOURLY_LEAVE']]
+      [shift_start_time, shift_end_time, grace_period_minutes, required_working_hours, casual_leave_notice_days || 0, financial_year_start_month || 1, financial_year_end_month || 12, working_days || [1,2,3,4,5,6], visible_flags || ['LATE', 'EARLY_EXIT', 'OVERTIME', 'FIRST_HALF', 'SECOND_HALF', 'WEEKEND_WORK', 'HOLIDAY_WORK', 'HOURLY_LEAVE']]
     );
     res.json({ message: "Settings updated successfully" });
   } catch (err) {

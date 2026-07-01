@@ -8,8 +8,19 @@ const AttendanceReport = () => {
   const [activeTab, setActiveTab] = useState("daily");
   const [reports, setReports] = useState([]);
   const [masterReports, setMasterReports] = useState([]);
+  const [monthStats, setMonthStats] = useState(null);
   const [leaveTypes, setLeaveTypes] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [visibleFlags, setVisibleFlags] = useState([]);
+
+  const fetchSettings = async () => {
+    try {
+      const res = await api.settings.get();
+      if (res.data && res.data.settings && res.data.settings.visible_flags) {
+        setVisibleFlags(res.data.settings.visible_flags);
+      }
+    } catch (err) { console.error(err); }
+  };
 
   // 1. Set current month as default
   const getCurrentMonth = () => `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
@@ -17,12 +28,13 @@ const AttendanceReport = () => {
   const [filterMonth, setFilterMonth] = useState(getCurrentMonth());
   const [filterDay, setFilterDay] = useState(new Date().getDate().toString());
   const [filterEmployee, setFilterEmployee] = useState("");
-  const [filterStatus, setFilterStatus] = useState("");
+  const [filterCoreStatus, setFilterCoreStatus] = useState("");
+  const [filterFlag, setFilterFlag] = useState("");
   const [filterDepartment, setFilterDepartment] = useState("");
-
   const [selectedEmployeeForDetails, setSelectedEmployeeForDetails] = useState(null);
 
   useEffect(() => {
+    fetchSettings();
     fetchReports();
     fetchMasterReports();
   }, [filterMonth]);
@@ -30,7 +42,7 @@ const AttendanceReport = () => {
   const fetchReports = async () => {
     try {
       setLoading(true);
-      const res = await API.get("/reports/attendance");
+      const res = await API.get(`/reports/attendance?month=${filterMonth}`);
       setReports(res.data);
       setLoading(false);
     } catch (err) {
@@ -47,6 +59,7 @@ const AttendanceReport = () => {
       const res = await api.reports.master(year, month);
       setMasterReports(res.data.reports || []);
       setLeaveTypes(res.data.leaveTypes || []);
+      setMonthStats(res.data.monthStats || null);
       setLoading(false);
     } catch (err) {
       console.error("Failed to fetch master reports", err);
@@ -74,20 +87,26 @@ const AttendanceReport = () => {
         : true;
 
       // 2. Case-insensitive matching for status (core + modifiers)
-      const matchesStatus = filterStatus 
-        ? (item.core_status?.toUpperCase() === filterStatus.toUpperCase() || 
-           (Array.isArray(item.modifier_flags) && item.modifier_flags.includes(filterStatus.toUpperCase())))
+      const matchesCoreStatus = filterCoreStatus 
+        ? item.core_status?.toUpperCase() === filterCoreStatus.toUpperCase()
         : true;
+        
+      const matchesFlag = filterFlag
+        ? (Array.isArray(item.modifier_flags) && item.modifier_flags.includes(filterFlag.toUpperCase())) || (typeof item.modifier_flags === 'string' && item.modifier_flags.includes(filterFlag.toUpperCase()))
+        : true;
+        
+      const matchesDepartment = filterDepartment ? item.department_name === filterDepartment : true;
 
-      return matchesMonth && matchesDay && matchesEmployee && matchesStatus;
+      return matchesMonth && matchesDay && matchesEmployee && matchesCoreStatus && matchesFlag && matchesDepartment;
     });
-  }, [reports, filterMonth, filterDay, filterEmployee, filterStatus]);
+  }, [reports, filterMonth, filterDay, filterEmployee, filterCoreStatus, filterFlag, filterDepartment]);
 
   const clearFilters = () => {
     setFilterMonth(getCurrentMonth());
     setFilterDay("");
     setFilterEmployee("");
-    setFilterStatus("");
+    setFilterCoreStatus("");
+    setFilterFlag("");
     setFilterDepartment("");
   };
 
@@ -140,18 +159,35 @@ const AttendanceReport = () => {
                 </div>
 
                 <div style={styles.filterGroup}>
+                  <label style={styles.label}>Department</label>
+                  <select value={filterDepartment} onChange={(e) => setFilterDepartment(e.target.value)} style={styles.input}>
+                    <option value="">All</option>
+                    {uniqueMasterDepartments.map(d => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </div>
+                <div style={styles.filterGroup}>
                   <label style={styles.label}>Status</label>
-                  <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} style={styles.input}>
+                  <select value={filterCoreStatus} onChange={(e) => setFilterCoreStatus(e.target.value)} style={styles.input}>
                     <option value="">All Status</option>
                     <option value="PRESENT">Present</option>
-                    <option value="LATE">Late</option>
                     <option value="ABSENT">Absent</option>
                     <option value="HALF_DAY">Half Day</option>
-                    <option value="SHORT_LEAVE">Short Leave</option>
+                    <option value="LEAVE">Leave</option>
                     <option value="MISSING_PUNCH">Missing Punch</option>
-                    <option value="OVERTIME">Overtime</option>
-                    <option value="WEEKEND_WORK">Weekend Work</option>
-                    <option value="HOLIDAY_WORK">Holiday Work</option>
+                    <option value="WEEKEND">Week Off</option>
+                    <option value="HOLIDAY">Holiday</option>
+                  </select>
+                </div>
+                <div style={styles.filterGroup}>
+                  <label style={styles.label}>Flag</label>
+                  <select value={filterFlag} onChange={(e) => setFilterFlag(e.target.value)} style={styles.input}>
+                    <option value="">All Flags</option>
+                    {visibleFlags.map(flag => (
+                      <option key={flag} value={flag}>{flag.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</option>
+                    ))}
+                    <option value="REGULARIZED">Regularized</option>
                   </select>
                 </div>
               </>
@@ -169,10 +205,11 @@ const AttendanceReport = () => {
             <AttendanceTable reports={filteredReports} loading={loading} />
           ) : (
             <div style={{ backgroundColor: "white", padding: "20px", borderRadius: "12px", boxShadow: "0 1px 3px 0 rgba(0, 0, 0, 0.1)", border: "1px solid #e2e8f0" }}>
-              <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', alignItems: 'center' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                  <label style={styles.label}>Filter Department</label>
-                  <select value={filterDepartment} onChange={(e) => setFilterDepartment(e.target.value)} style={{...styles.input, width: '200px'}}>
+              <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                    <label style={styles.label}>Filter Department</label>
+                    <select value={filterDepartment} onChange={(e) => setFilterDepartment(e.target.value)} style={{...styles.input, width: '200px'}}>
                     <option value="">All Departments</option>
                     {uniqueMasterDepartments.map(d => (
                       <option key={d} value={d}>{d}</option>
@@ -183,6 +220,22 @@ const AttendanceReport = () => {
                   <label style={styles.label}>Search Employee</label>
                   <input type="text" placeholder="Search Name/Code..." value={filterEmployee} onChange={(e) => setFilterEmployee(e.target.value)} style={{...styles.input, width: '200px'}} />
                 </div>
+                </div>
+                {monthStats && (
+                  <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+                    {monthStats.hasPendingAttendance && (
+                      <div style={{ padding: '8px 12px', backgroundColor: '#fef2f2', color: '#b91c1c', border: '1px solid #f87171', borderRadius: '8px', fontSize: '13px', fontWeight: 'bold' }}>
+                        ⚠️ Warning: Pending attendances to upload for this month.
+                      </div>
+                    )}
+                    <div style={{ padding: '8px 15px', backgroundColor: '#f1f5f9', borderRadius: '8px', fontSize: '14px', color: '#334155' }}>
+                      <span style={{ fontWeight: 'bold' }}>Total Days:</span> {monthStats.totalDays} 
+                    </div>
+                    <div style={{ padding: '8px 15px', backgroundColor: '#f1f5f9', borderRadius: '8px', fontSize: '14px', color: '#64748b' }}>
+                      <span style={{ fontWeight: 'bold' }}>Non-Working Days:</span> {monthStats.nonWorkingDays} (Week Offs & Holidays)
+                    </div>
+                  </div>
+                )}
               </div>
 
               {loading ? (
@@ -194,6 +247,7 @@ const AttendanceReport = () => {
                       <th style={styles.th}>Employee Code</th>
                       <th style={styles.th}>Name</th>
                       <th style={styles.th}>Department</th>
+                      <th style={styles.th}>Total Working Days</th>
                       <th style={styles.th}>Present</th>
                       <th style={styles.th}>Absent</th>
                       <th style={styles.th}>Total Leaves</th>
@@ -213,6 +267,7 @@ const AttendanceReport = () => {
                         <td style={{ padding: "12px 20px" }}>{r.employee_code}</td>
                         <td style={{ padding: "12px 20px" }}><strong>{r.name}</strong></td>
                         <td style={{ padding: "12px 20px" }}>{r.department_name || "-"}</td>
+                        <td style={{ padding: "12px 20px", fontWeight: "bold" }}>{r.total_working_days || 0}</td>
                         <td style={{ padding: "12px 20px", color: "#166534" }}>{r.total_present}</td>
                         <td style={{ padding: "12px 20px", color: "#991b1b" }}>{r.total_absent}</td>
                         <td style={{ padding: "12px 20px", color: "#d97706", fontWeight: "bold" }}>{r.total_leaves}</td>

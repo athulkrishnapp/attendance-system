@@ -1,8 +1,6 @@
 /**
  * ATTENDANCE RULE ENGINE
  * =====================
- * Two calculation modes: WORKING_HOURS and SHIFT_TIMING.
- *
  * Global Definitions:
  *   - shiftStart: Start of the shift window (e.g. 09:00)
  *   - shiftEnd: End of the shift window (e.g. 18:00)
@@ -10,7 +8,6 @@
  *   - shiftStartWithGrace (= shiftStart + grace): latest valid punch-in for a non-late arrival
  *   - shiftEndMinusGrace (= shiftEnd - grace): earliest valid punch-out for a non-early-exit
  *   - midTime: half-day threshold time (e.g. 13:00) — used for SHIFT_TIMING
- *   - midHours: requiredHours / 2 — used for WORKING_HOURS
  *   - MISSING_PUNCH: only 1 punch exists (firstIn present, lastOut is null OR firstIn === lastOut in ms)
  */
 
@@ -47,6 +44,7 @@ function getSystemOverride({ workingHours, isWeekend, holidayName, approvedLeave
  *   - firstIn and lastOut are the same moment (scanner spam / single punch stored twice)
  */
 function isMissingPunch(firstIn, lastOut) {
+    if (!firstIn && !lastOut) return false; // 0 punches = ABSENT, not missing punch
     if (!firstIn) return true;
     if (!lastOut) return true;
     if (isNaN(new Date(firstIn).getTime())) return true;
@@ -56,104 +54,6 @@ function isMissingPunch(firstIn, lastOut) {
     return false;
 }
 
-// ---------------------------------------------------------------------------
-// WORKING HOURS MODE
-// ---------------------------------------------------------------------------
-/**
- * Status is determined by the total duration worked, compared against thresholds.
- *
- * PRESENT   : workingHours >= requiredHours
- * HALF_DAY  : midHours <= workingHours < requiredHours AND approved half-day leave
- * ABSENT    : workingHours < midHours
- *           : midHours <= workingHours < requiredHours AND NO approved half-day leave
- *
- * LATE        : firstIn > shiftStart AND firstIn <= shiftStartWithGrace
- * EARLY_EXIT  : lastOut < shiftEnd AND lastOut >= shiftEndMinusGrace
- * OVERTIME    : workingHours > requiredHours
- * HOURLY_LEAVE: approved hourly leave exists for the day
- */
-function calculateWorkingHoursMode(params) {
-    const {
-        firstIn, lastOut, workingHours,
-        expectedStartDate, expectedEndDate, maxGraceDate,
-        requiredHours, approvedLeave
-    } = params;
-
-    let core_status = null;
-    let modifier_flags = [];
-
-    // --- Step 1: MISSING_PUNCH (highest priority, overrides everything) ---
-    if (isMissingPunch(firstIn, lastOut)) {
-        return { core_status: 'MISSING_PUNCH', modifier_flags: [] };
-    }
-
-    // --- Step 2: System overrides (WEEKEND / HOLIDAY / full-day LEAVE) ---
-    const { override_status, override_flags } = getSystemOverride(params);
-    if (override_status) {
-        return { core_status: override_status, modifier_flags: override_flags };
-    }
-
-    // --- Step 3: Derived time boundaries ---
-    const shiftStart        = expectedStartDate ? new Date(expectedStartDate) : null;
-    const shiftStartWithGrace = maxGraceDate   ? new Date(maxGraceDate)       : null;
-    const shiftEnd          = expectedEndDate   ? new Date(expectedEndDate)    : null;
-    const midHours          = requiredHours / 2;
-
-    let graceMs = 0;
-    if (shiftStart && shiftStartWithGrace) {
-        graceMs = shiftStartWithGrace.getTime() - shiftStart.getTime();
-    }
-    const shiftEndMinusGrace = shiftEnd
-        ? new Date(shiftEnd.getTime() - graceMs)
-        : null;
-
-    // --- Step 4: Core status calculation ---
-    if (workingHours >= requiredHours) {
-        core_status = 'PRESENT';
-    } else if (workingHours >= midHours) {
-        // In the mid-zone: only valid if there is an approved half-day leave
-        if (approvedLeave && approvedLeave.duration === 'Half Day') {
-            core_status = 'HALF_DAY';
-        } else {
-            // Worked mid-hours but no approved leave — counts as ABSENT
-            core_status = 'ABSENT';
-        }
-    } else {
-        // Worked less than mid-hours
-        core_status = 'ABSENT';
-    }
-
-    // --- Step 5: Modifier flags ---
-    // LATE: checked in after shift start but within grace period
-    if (firstIn && shiftStart && shiftStartWithGrace) {
-        if (firstIn > shiftStart && firstIn <= shiftStartWithGrace) {
-            modifier_flags.push('LATE');
-        }
-    }
-
-    // EARLY_EXIT: checked out before shift end but within grace period
-    if (lastOut && shiftEnd && shiftEndMinusGrace) {
-        if (lastOut < shiftEnd && lastOut >= shiftEndMinusGrace) {
-            modifier_flags.push('EARLY_EXIT');
-        }
-    }
-
-    // OVERTIME: worked beyond the required shift hours
-    if (workingHours > requiredHours) {
-        modifier_flags.push('OVERTIME');
-    }
-
-    // HOURLY_LEAVE: employee has an approved hourly leave on this day
-    if (approvedLeave && approvedLeave.duration === 'Hourly') {
-        modifier_flags.push('HOURLY_LEAVE');
-    }
-
-    return { core_status, modifier_flags };
-}
-
-// ---------------------------------------------------------------------------
-// SHIFT TIMING MODE
-// ---------------------------------------------------------------------------
 /**
  * Status is determined by WHEN the employee punched in and out, not just duration.
  *
@@ -193,6 +93,10 @@ function calculateShiftTimingMode(params) {
     const { override_status, override_flags } = getSystemOverride(params);
     if (override_status) {
         return { core_status: override_status, modifier_flags: override_flags };
+    }
+
+    if (!firstIn && !lastOut) {
+        return { core_status: 'ABSENT', modifier_flags: modifier_flags };
     }
 
     // --- Step 3: Derived time boundaries ---
@@ -289,9 +193,6 @@ function calculateShiftTimingMode(params) {
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
-exports.calculateAttendance = function(mode, params) {
-    if (mode === 'SHIFT_TIMING') {
-        return calculateShiftTimingMode(params);
-    }
-    return calculateWorkingHoursMode(params);
+exports.calculateAttendance = function(params) {
+    return calculateShiftTimingMode(params);
 };

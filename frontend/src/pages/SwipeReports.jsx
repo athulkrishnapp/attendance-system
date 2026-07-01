@@ -72,10 +72,7 @@ const SwipeReports = () => {
     return parseInt(monthStr) === parseInt(selectedMonth) && parseInt(yearStr) === parseInt(selectedYear);
   });
 
-  const totalDays = filteredLogs.length;
-  const presentDays = filteredLogs.filter(l => l.core_status === "PRESENT").length;
-  const lateDays = filteredLogs.filter(l => l.core_status === "PRESENT" && l.remarks && l.remarks.includes("LATE ARRIVAL")).length;
-  const halfDays = filteredLogs.filter(l => l.core_status === "HALF_DAY").length;
+
 
   return (
     <div style={styles.layout}>
@@ -130,20 +127,7 @@ const SwipeReports = () => {
                 </div>
               </div>
 
-              {/* Monthly Summary Graph */}
-              <div style={styles.summaryCard}>
-                <h4 style={{margin: "0 0 15px 0", color: "var(--text-muted)"}}>Monthly Summary</h4>
-                <div style={styles.graphBar}>
-                   <div style={{...styles.graphSegment, width: `${totalDays ? (presentDays/totalDays)*100 : 0}%`, backgroundColor: "#10b981"}} title="Present"></div>
-                   <div style={{...styles.graphSegment, width: `${totalDays ? (halfDays/totalDays)*100 : 0}%`, backgroundColor: "#f59e0b"}} title="Half Day"></div>
-                   <div style={{...styles.graphSegment, width: `${totalDays ? (lateDays/totalDays)*100 : 0}%`, backgroundColor: "#ef4444"}} title="Late"></div>
-                </div>
-                <div style={styles.legend}>
-                  <span><span style={{color: "#10b981"}}>●</span> Present ({presentDays})</span>
-                  <span><span style={{color: "#ef4444"}}>●</span> Late ({lateDays})</span>
-                  <span><span style={{color: "#f59e0b"}}>●</span> Half Days ({halfDays})</span>
-                </div>
-              </div>
+
 
               <div style={styles.tableContainer}>
                 {loading ? <p style={{padding: "20px"}}>Loading data...</p> : (
@@ -174,7 +158,11 @@ const SwipeReports = () => {
                         };
 
                         const hasFlag = (flag) => log.modifier_flags && log.modifier_flags.includes(flag);
-                        const canRegularize = (log.core_status === 'MISSING_PUNCH' || log.core_status === 'ABSENT' || hasFlag('LATE') || hasFlag('EARLY_EXIT')) && !log.regularization_status;
+                        const eligibleStatus = ['ABSENT', 'HALF_DAY', 'MISSING_PUNCH'].includes(log.core_status);
+                        const eligibleFlag = hasFlag('LATE') || hasFlag('EARLY_EXIT') || hasFlag('FIRST_HALF') || hasFlag('SECOND_HALF');
+                        const isRestricted = ['WEEKEND', 'HOLIDAY', 'LEAVE'].includes(log.core_status) || hasFlag('HOURLY_LEAVE') || hasFlag('OVERTIME');
+                        
+                        const canRegularize = (eligibleStatus || eligibleFlag) && !isRestricted && !log.regularization_status;
 
                         return (
                           <tr key={log.id} style={styles.tr}>

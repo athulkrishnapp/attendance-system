@@ -40,7 +40,7 @@ const AttendanceTable = ({ reports, loading }) => {
 
         <tbody>
           {reports.map((log) => (
-            <tr key={log.id} style={styles.tr}>
+            <tr key={`${log.employee_id}_${log.attendance_date}`} style={styles.tr}>
               <td style={styles.td}>
                 <strong>{formatDate(log.attendance_date)}</strong>
               </td>
@@ -87,6 +87,10 @@ const AttendanceTable = ({ reports, loading }) => {
                       ? styles.badgePresent
                       : log.core_status === "ABSENT"
                       ? styles.badgeAbsent
+                      : log.core_status === "UNMARKED"
+                      ? styles.badgeUnmarked
+                      : (log.core_status === "WEEKEND" || log.core_status === "HOLIDAY")
+                      ? styles.badgeHoliday
                       : styles.badgeOther
                   }
                 >
@@ -196,6 +200,24 @@ const styles = {
   badgeOther: {
     backgroundColor: "#fef08a",
     color: "#854d0e",
+    padding: "6px 10px",
+    borderRadius: "12px",
+    fontSize: "12px",
+    fontWeight: "bold",
+  },
+
+  badgeUnmarked: {
+    backgroundColor: "#f1f5f9",
+    color: "#64748b",
+    padding: "6px 10px",
+    borderRadius: "12px",
+    fontSize: "12px",
+    fontWeight: "bold",
+  },
+
+  badgeHoliday: {
+    backgroundColor: "#e0f2fe",
+    color: "#0369a1",
     padding: "6px 10px",
     borderRadius: "12px",
     fontSize: "12px",
