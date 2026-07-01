@@ -34,6 +34,7 @@ const AttendanceTable = ({ reports, loading }) => {
             <th style={styles.th}>Total Hrs</th>
             <th style={styles.th}>Leave Type</th>
             <th style={styles.th}>Status</th>
+            <th style={styles.th}>Flags</th>
           </tr>
         </thead>
 
@@ -80,29 +81,31 @@ const AttendanceTable = ({ reports, loading }) => {
               </td>
 
               <td style={styles.td}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
-                  <span
-                    style={
-                      log.core_status === "PRESENT"
-                        ? styles.badgePresent
-                        : log.core_status === "ABSENT"
-                        ? styles.badgeAbsent
-                        : styles.badgeOther
-                    }
-                  >
-                    {log.core_status}
-                  </span>
-                  
-                  {log.modifier_flags && Array.isArray(log.modifier_flags) && log.modifier_flags.length > 0 && (
-                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '2px' }}>
-                      {log.modifier_flags.map((flag, idx) => (
-                        <span key={idx} style={styles.flagChip}>
-                          {flag.replace('_', ' ')}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <span
+                  style={
+                    log.core_status === "PRESENT"
+                      ? styles.badgePresent
+                      : log.core_status === "ABSENT"
+                      ? styles.badgeAbsent
+                      : styles.badgeOther
+                  }
+                >
+                  {log.core_status}
+                </span>
+              </td>
+
+              <td style={styles.td}>
+                {log.modifier_flags && Array.isArray(log.modifier_flags) && log.modifier_flags.length > 0 ? (
+                  <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                    {log.modifier_flags.map((flag, idx) => (
+                      <span key={idx} style={styles.flagChip}>
+                        {flag.replace('_', ' ')}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <span style={{ color: '#cbd5e1' }}></span>
+                )}
               </td>
             </tr>
           ))}

@@ -45,8 +45,14 @@ const getAttendanceReport = async (req, res) => {
     `);
 
     const maskedRows = result.rows.map(row => {
-      if (row.modifier_flags && Array.isArray(row.modifier_flags)) {
-        row.modifier_flags = row.modifier_flags.filter(flag => visibleFlags.includes(flag));
+      let flags = row.modifier_flags;
+      if (typeof flags === 'string') {
+        try { flags = JSON.parse(flags); } catch(e) { flags = []; }
+      }
+      if (flags && Array.isArray(flags)) {
+        row.modifier_flags = flags.filter(flag => visibleFlags.includes(flag));
+      } else {
+        row.modifier_flags = [];
       }
       return row;
     });
@@ -75,8 +81,14 @@ const getMyAttendance = async (req, res) => {
     `, [req.params.id]);
 
     const maskedRows = result.rows.map(row => {
-      if (row.modifier_flags && Array.isArray(row.modifier_flags)) {
-        row.modifier_flags = row.modifier_flags.filter(flag => visibleFlags.includes(flag));
+      let flags = row.modifier_flags;
+      if (typeof flags === 'string') {
+        try { flags = JSON.parse(flags); } catch(e) { flags = []; }
+      }
+      if (flags && Array.isArray(flags)) {
+        row.modifier_flags = flags.filter(flag => visibleFlags.includes(flag));
+      } else {
+        row.modifier_flags = [];
       }
       return row;
     });

@@ -394,6 +394,7 @@ const AdminDashboard = () => {
                                 <th style={styles.th}>Out Time</th>
                                 <th style={styles.th}>Work Hrs</th>
                                 <th style={styles.th}>Status</th>
+                                <th style={styles.th}>Flags</th>
                                 <th style={styles.th}>Remarks</th>
                                 <th style={styles.th}>Actions</th>
                             </tr>
@@ -423,6 +424,9 @@ const AdminDashboard = () => {
                                                         <option value="MISSING_PUNCH">MISSING_PUNCH</option>
                                                     </select>
                                                 </td>
+                                                <td style={{ padding: '10px', fontSize: '12px' }}>
+                                                    {record.modifier_flags && Array.isArray(record.modifier_flags) && record.modifier_flags.length > 0 ? record.modifier_flags.join(', ').replace(/_/g, ' ') : '-'}
+                                                </td>
                                                 <td style={{ padding: '10px' }}><input type="text" value={editRecordForm.remarks || ''} onChange={e => setEditRecordForm({...editRecordForm, remarks: e.target.value})} style={styles.inputSmall} /></td>
                                                 <td style={{ padding: '10px' }}>
                                                     <button onClick={() => handleSaveRecord(record.id)} style={styles.saveBtn}>Save</button>
@@ -434,7 +438,14 @@ const AdminDashboard = () => {
                                                 <td style={{ padding: '10px' }}>{record.first_in || '-'}</td>
                                                 <td style={{ padding: '10px' }}>{record.last_out || '-'}</td>
                                                 <td style={{ padding: '10px' }}>{record.working_hours || '-'}</td>
-                                                <td style={{ padding: '10px' }}>{record.core_status || '-'}</td>
+                                                <td style={{ padding: '10px' }}>
+                                                    {record.core_status === 'LEAVE' && record.leave_type_name 
+                                                      ? `LEAVE (${record.leave_type_name})` 
+                                                      : record.core_status || '-'}
+                                                </td>
+                                                <td style={{ padding: '10px' }}>
+                                                    {record.modifier_flags && Array.isArray(record.modifier_flags) && record.modifier_flags.length > 0 ? record.modifier_flags.join(', ').replace(/_/g, ' ') : '-'}
+                                                </td>
                                                 <td style={{ padding: '10px' }}>{record.remarks || '-'}</td>
                                                 <td style={{ padding: '10px' }}>
                                                     <button onClick={() => { setEditingRecordId(record.id); setEditRecordForm(record); }} style={styles.editLinkBtn}>Edit</button>
@@ -445,7 +456,7 @@ const AdminDashboard = () => {
                                 );
                             })}
                             {filteredDailyAttendance.length === 0 && (
-                                <tr><td colSpan="9" style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>No records found.</td></tr>
+                                <tr><td colSpan="10" style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>No records found.</td></tr>
                             )}
                         </tbody>
                     </table>

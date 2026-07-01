@@ -163,7 +163,7 @@ const SwipeReports = () => {
                         const dateOnly = log.attendance_date.split('T')[0];
                         
                         const getStatusDisplay = () => {
-                            if (log.core_status === 'LEAVE') return log.leave_type_name || "Leave";
+                            if (log.core_status === 'LEAVE') return log.leave_type_name ? `Leave (${log.leave_type_name})` : "Leave";
                             if (log.core_status === 'HALF_DAY') return "Half Day";
                             if (log.core_status === 'MISSING_PUNCH') return "Missing Punch";
                             if (log.core_status === 'WEEKEND') return "Week Off";

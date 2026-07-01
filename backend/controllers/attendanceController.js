@@ -31,8 +31,9 @@ exports.uploadAttendance = async (req, res) => {
       LEFT JOIN shifts s ON e.shift_id = s.id
     `);
     const empMap = {};
+    const empIdMap = {};
     employeesRes.rows.forEach(emp => {
-      empMap[emp.employee_code] = {
+      const empData = {
         id: emp.id,
         shift_start_time: emp.shift_start_time,
         shift_end_time: emp.shift_end_time,
@@ -40,6 +41,8 @@ exports.uploadAttendance = async (req, res) => {
         required_working_hours: emp.required_working_hours,
         half_day_mark_time: emp.half_day_mark_time
       };
+      empMap[emp.employee_code] = empData;
+      empIdMap[emp.id] = empData;
     });
 
     const leavesRes = await pool.query(`
@@ -76,30 +79,32 @@ exports.uploadAttendance = async (req, res) => {
       [req.file.originalname, 1, data.length]
     );
 
-    const dailySummaries = {};
-
-    // Inside attendanceController.js - Replace the loop logic
+    const scans = [];
 
     for (const row of data) {
       const empInfo = empMap[row.employee_code];
       if (!empInfo) continue;
       const actualEmployeeId = empInfo.id;
 
-      // Robust parsing: Enforce Local Timezone interpretation to prevent UTC shift
       let scanDateObj;
       if (typeof row.scan_time === 'number') {
-        // Excel serial date (which includes date and time)
         const excelEpoch = new Date(Date.UTC(1899, 11, 30));
         const utcDate = new Date(excelEpoch.getTime() + Math.round(row.scan_time * 86400000));
-        // Construct LOCAL date using UTC parts to prevent shift
         scanDateObj = new Date(utcDate.getUTCFullYear(), utcDate.getUTCMonth(), utcDate.getUTCDate(), utcDate.getUTCHours(), utcDate.getUTCMinutes(), utcDate.getUTCSeconds());
       } else if (typeof row.scan_time === 'string') {
-        // Try strict manual parsing first to prevent timezone shifts
         const cleanedStr = row.scan_time.trim().replace(/\//g, '-');
         const [datePart, timePart] = cleanedStr.split(' ');
 
         if (datePart && timePart) {
-          const [year, month, day] = datePart.split('-');
+          let [p1, p2, p3] = datePart.split('-');
+          let year, month, day;
+          if (p1.length === 4) {
+            year = p1; month = p2; day = p3;
+          } else if (p3 && p3.length === 4) {
+            day = p1; month = p2; year = p3;
+          } else {
+            year = p1; month = p2; day = p3;
+          }
           const [hour, minute, second] = timePart.split(':');
           scanDateObj = new Date(year, month - 1, day, hour || 0, minute || 0, second || 0);
         } else {
@@ -110,133 +115,16 @@ exports.uploadAttendance = async (req, res) => {
       }
 
       if (isNaN(scanDateObj.getTime())) {
-        continue; // Prevent Invalid Dates from entering the array and destroying the sort function
+        continue;
       }
 
-      const shiftStartTimeStr = empInfo.shift_start_time || settings.shift_start_time || '09:00:00';
-      const [shiftHr, shiftMin] = shiftStartTimeStr.split(':').map(Number);
-      
-      let logicalDateObj = new Date(scanDateObj);
-      const boundaryTime = new Date(scanDateObj.getFullYear(), scanDateObj.getMonth(), scanDateObj.getDate(), shiftHr, shiftMin, 0);
-      boundaryTime.setHours(boundaryTime.getHours() - 4);
-
-      if (scanDateObj < boundaryTime) {
-        logicalDateObj.setDate(logicalDateObj.getDate() - 1);
-      }
-
-      const yearStr = logicalDateObj.getFullYear();
-      const monthStr = String(logicalDateObj.getMonth() + 1).padStart(2, '0');
-      const dayStr = String(logicalDateObj.getDate()).padStart(2, '0');
-      const dateKey = `${yearStr}-${monthStr}-${dayStr}`;
-
-      await pool.query(
-        "INSERT INTO attendance_logs (employee_id, scan_time, source, device_id) VALUES ($1, $2, $3, $4)",
-        [actualEmployeeId, scanDateObj, 'EXCEL', 'MAIN_GATE']
-      );
-
-      const summaryKey = `${actualEmployeeId}_${dateKey}`;
-      if (!dailySummaries[summaryKey]) {
-        dailySummaries[summaryKey] = {
-          employee_id: actualEmployeeId,
-          attendance_date: dateKey,
-          scans: []
-        };
-      }
-      dailySummaries[summaryKey].scans.push(scanDateObj);
+      scans.push({ employee_id: actualEmployeeId, scan_time: scanDateObj });
     }
 
-    for (const key in dailySummaries) {
-      const record = dailySummaries[key];
-      record.scans.sort((a, b) => a - b);
+    const count = await processAndSaveSummaries(scans, settings, empIdMap, holidayMap, leaveMap);
 
-      // Fetch employee shift or use defaults
-      const empInfo = Object.values(empMap).find(e => e.id === record.employee_id);
-      const shiftStartTime = empInfo?.shift_start_time || settings.shift_start_time || '09:00:00';
-      const gracePeriod = empInfo?.grace_period_minutes !== null && empInfo?.grace_period_minutes !== undefined ? empInfo.grace_period_minutes : settings.grace_period_minutes;
-      const requiredHours = empInfo?.required_working_hours !== null && empInfo?.required_working_hours !== undefined ? parseFloat(empInfo.required_working_hours) : parseFloat(settings.required_working_hours);
-
-      const approvedLeave = leaveMap[record.employee_id]?.[record.attendance_date];
-
-      const [shiftHr, shiftMin] = shiftStartTime.split(':').map(Number);
-      const [logicalYear, logicalMonth, logicalDay] = record.attendance_date.split('-').map(Number);
-      
-      const expectedStartDate = new Date(logicalYear, logicalMonth - 1, logicalDay, shiftHr, shiftMin, 0);
-      const maxGraceDate = new Date(expectedStartDate.getTime() + (gracePeriod * 60000));
-      
-      const shiftEndHrStr = empInfo?.shift_end_time || settings.shift_end_time || '18:00:00';
-      const [shiftEndHr, shiftEndMin] = shiftEndHrStr.split(':').map(Number);
-      const expectedEndDate = new Date(logicalYear, logicalMonth - 1, logicalDay, shiftEndHr, shiftEndMin, 0);
-      
-      const halfDayThreshold = empInfo?.half_day_mark_time || '13:00:00';
-      const [halfHr, halfMin] = halfDayThreshold.split(':').map(Number);
-      const halfDayThresholdDate = new Date(logicalYear, logicalMonth - 1, logicalDay, halfHr, halfMin, 0);
-      
-      if (halfDayThresholdDate < expectedStartDate) {
-          halfDayThresholdDate.setDate(halfDayThresholdDate.getDate() + 1);
-      }
-      if (expectedEndDate < expectedStartDate) {
-          expectedEndDate.setDate(expectedEndDate.getDate() + 1);
-      }
-
-      let firstIn = null;
-      let lastOut = null;
-      
-      if (record.scans.length === 1) {
-          firstIn = record.scans[0];
-          lastOut = null;
-      } else if (record.scans.length > 1) {
-          firstIn = record.scans[0];
-          lastOut = record.scans[record.scans.length - 1];
-          // Check for duplicate or spam punches in the same minute
-          if (Math.abs(lastOut - firstIn) < 60000) {
-              lastOut = null;
-          }
-      }
-      
-      const workingHours = (firstIn && lastOut) ? parseFloat(((lastOut - firstIn) / (1000 * 60 * 60)).toFixed(2)) : 0;
-
-      const refDate = firstIn || lastOut || expectedStartDate;
-      const holidayName = holidayMap[record.attendance_date];
-      const dayOfWeek = refDate.getDay();
-      const workingDays = settings.working_days || [1, 2, 3, 4, 5, 6];
-      const isWeekend = !workingDays.includes(dayOfWeek);
-
-      const mode = settings.calculation_mode || 'WORKING_HOURS';
-      const { core_status, modifier_flags } = ruleEngine.calculateAttendance(mode, {
-          firstIn, 
-          lastOut, 
-          workingHours, 
-          expectedStartDate, 
-          expectedEndDate, 
-          halfDayThresholdDate, 
-          maxGraceDate, 
-          requiredHours, 
-          isWeekend, 
-          holidayName, 
-          approvedLeave
-      });
-
-      await pool.query(`
-        INSERT INTO attendance_summary 
-          (employee_id, attendance_date, first_in, last_out, working_hours, core_status, modifier_flags, remarks)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT (employee_id, attendance_date) 
-        DO UPDATE SET first_in = EXCLUDED.first_in, last_out = EXCLUDED.last_out, 
-                      working_hours = EXCLUDED.working_hours, core_status = EXCLUDED.core_status, 
-                      modifier_flags = EXCLUDED.modifier_flags, remarks = EXCLUDED.remarks
-      `, [
-        record.employee_id,
-        record.attendance_date,
-        firstIn ? (String(firstIn.getHours()).padStart(2, '0') + ':' + String(firstIn.getMinutes()).padStart(2, '0') + ':' + String(firstIn.getSeconds()).padStart(2, '0')) : null,
-        lastOut ? (String(lastOut.getHours()).padStart(2, '0') + ':' + String(lastOut.getMinutes()).padStart(2, '0') + ':' + String(lastOut.getSeconds()).padStart(2, '0')) : null,
-        workingHours,
-        core_status,
-        JSON.stringify(modifier_flags),
-        null
-      ]);
-    }
     res.status(200).json({
-      message: "Smart calculation complete!",
+      message: `Smart calculation complete! ${count} daily records updated.`,
       recordsProcessed: data.length
     });
 
@@ -245,6 +133,123 @@ exports.uploadAttendance = async (req, res) => {
     res.status(500).json({ error: "Failed to process attendance file" });
   }
 };
+
+/**
+ * Shared helper: build attendance summaries from an array of raw scans.
+ * scans: [{ employee_id, scan_time: Date }]
+ * Returns number of records written.
+ */
+async function processAndSaveSummaries(scans, settings, empIdMap, holidayMap, leaveMap) {
+  const formatTime = (d) =>
+    String(d.getHours()).padStart(2, '0') + ':' +
+    String(d.getMinutes()).padStart(2, '0') + ':' +
+    String(d.getSeconds()).padStart(2, '0');
+
+  // Group scans by employee_id + logical date
+  const dailySummaries = {};
+  for (const { employee_id, scan_time } of scans) {
+    const empInfo = empIdMap[employee_id];
+    if (!empInfo) continue;
+
+    const shiftStartStr = empInfo.shift_start_time || settings.shift_start_time || '09:00:00';
+    const [shiftHr, shiftMin] = shiftStartStr.split(':').map(Number);
+
+    let logicalDateObj = new Date(scan_time);
+    const boundary = new Date(
+      scan_time.getFullYear(), scan_time.getMonth(), scan_time.getDate(),
+      shiftHr, shiftMin, 0
+    );
+    boundary.setHours(boundary.getHours() - 4); // 4-hour pre-shift window
+    if (scan_time < boundary) {
+      logicalDateObj.setDate(logicalDateObj.getDate() - 1);
+    }
+
+    const dateKey = `${logicalDateObj.getFullYear()}-${String(logicalDateObj.getMonth() + 1).padStart(2, '0')}-${String(logicalDateObj.getDate()).padStart(2, '0')}`;
+    const key = `${employee_id}_${dateKey}`;
+    if (!dailySummaries[key]) {
+      dailySummaries[key] = { employee_id, attendance_date: dateKey, scans: [] };
+    }
+    dailySummaries[key].scans.push(scan_time);
+  }
+
+  let count = 0;
+  for (const key in dailySummaries) {
+    const record = dailySummaries[key];
+    record.scans.sort((a, b) => a - b);
+
+    const empInfo = empIdMap[record.employee_id];
+    const shiftStartTime  = empInfo?.shift_start_time  || settings.shift_start_time  || '09:00:00';
+    const gracePeriod     = (empInfo?.grace_period_minutes  != null) ? empInfo.grace_period_minutes  : settings.grace_period_minutes;
+    const requiredHours   = (empInfo?.required_working_hours != null) ? parseFloat(empInfo.required_working_hours) : parseFloat(settings.required_working_hours);
+    const shiftEndHrStr   = empInfo?.shift_end_time    || settings.shift_end_time    || '18:00:00';
+    const halfDayMark     = empInfo?.half_day_mark_time || '13:00:00';
+
+    const [logicalYear, logicalMonth, logicalDay] = record.attendance_date.split('-').map(Number);
+    const [sHr, sMin] = shiftStartTime.split(':').map(Number);
+    const [eHr, eMin] = shiftEndHrStr.split(':').map(Number);
+    const [hHr, hMin] = halfDayMark.split(':').map(Number);
+
+    const expectedStartDate      = new Date(logicalYear, logicalMonth - 1, logicalDay, sHr, sMin, 0);
+    const maxGraceDate           = new Date(expectedStartDate.getTime() + gracePeriod * 60000);
+    const expectedEndDate        = new Date(logicalYear, logicalMonth - 1, logicalDay, eHr, eMin, 0);
+    const halfDayThresholdDate   = new Date(logicalYear, logicalMonth - 1, logicalDay, hHr, hMin, 0);
+
+    if (halfDayThresholdDate < expectedStartDate) halfDayThresholdDate.setDate(halfDayThresholdDate.getDate() + 1);
+    if (expectedEndDate < expectedStartDate)       expectedEndDate.setDate(expectedEndDate.getDate() + 1);
+
+    let firstIn = null;
+    let lastOut = null;
+    if (record.scans.length === 1) {
+      firstIn = record.scans[0];
+      lastOut = null;
+    } else if (record.scans.length > 1) {
+      firstIn = record.scans[0];
+      lastOut = record.scans[record.scans.length - 1];
+      if (Math.abs(lastOut - firstIn) < 60000) { // same-minute spam → single punch
+        lastOut = null;
+      }
+    }
+
+    const workingHours = (firstIn && lastOut)
+      ? parseFloat(((lastOut - firstIn) / (1000 * 60 * 60)).toFixed(2))
+      : 0;
+
+    const refDate      = firstIn || lastOut || expectedStartDate;
+    const holidayName  = holidayMap[record.attendance_date];
+    const workingDays  = settings.working_days || [1, 2, 3, 4, 5, 6];
+    const isWeekend    = !workingDays.includes(refDate.getDay());
+    const approvedLeave = leaveMap[record.employee_id]?.[record.attendance_date];
+
+    const mode = settings.calculation_mode || 'WORKING_HOURS';
+    const { core_status, modifier_flags } = ruleEngine.calculateAttendance(mode, {
+      firstIn, lastOut, workingHours,
+      expectedStartDate, expectedEndDate, halfDayThresholdDate,
+      maxGraceDate, requiredHours, isWeekend, holidayName, approvedLeave
+    });
+
+    await pool.query(`
+      INSERT INTO attendance_summary
+        (employee_id, attendance_date, first_in, last_out, working_hours, core_status, modifier_flags, remarks)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      ON CONFLICT (employee_id, attendance_date)
+      DO UPDATE SET first_in = EXCLUDED.first_in, last_out = EXCLUDED.last_out,
+                    working_hours = EXCLUDED.working_hours, core_status = EXCLUDED.core_status,
+                    modifier_flags = EXCLUDED.modifier_flags, remarks = EXCLUDED.remarks
+    `, [
+      record.employee_id,
+      record.attendance_date,
+      firstIn  ? formatTime(firstIn)  : null,
+      lastOut  ? formatTime(lastOut)  : null,
+      workingHours,
+      core_status,
+      JSON.stringify(modifier_flags),
+      null
+    ]);
+    count++;
+  }
+  return count;
+}
+
 
 exports.requestRegularization = async (req, res) => {
   try {
@@ -436,19 +441,29 @@ exports.getAttendanceByDate = async (req, res) => {
     const visibleFlags = settingsRes.rows[0]?.visible_flags || [];
 
     const result = await pool.query(
-      `SELECT a.*, e.name, e.employee_code, d.department_name, s.shift_name 
+      `SELECT a.*, e.name, e.employee_code, d.department_name, s.shift_name, lt.name as leave_type_name
        FROM attendance_summary a 
        JOIN employees e ON a.employee_id = e.id 
        LEFT JOIN departments d ON e.department_id = d.id
        LEFT JOIN shifts s ON e.shift_id = s.id
+       LEFT JOIN leave_requests lr ON a.employee_id = lr.employee_id 
+            AND lr.status = 'APPROVED' 
+            AND a.attendance_date >= lr.start_date AND a.attendance_date <= lr.end_date
+       LEFT JOIN leave_types lt ON lr.leave_type_id = lt.id
        WHERE a.attendance_date = $1
        ORDER BY e.name ASC`,
       [date]
     );
 
     const maskedRows = result.rows.map(row => {
-      if (row.modifier_flags && Array.isArray(row.modifier_flags)) {
-        row.modifier_flags = row.modifier_flags.filter(flag => visibleFlags.includes(flag));
+      let flags = row.modifier_flags;
+      if (typeof flags === 'string') {
+        try { flags = JSON.parse(flags); } catch(e) { flags = []; }
+      }
+      if (flags && Array.isArray(flags)) {
+        row.modifier_flags = flags.filter(flag => visibleFlags.includes(flag));
+      } else {
+        row.modifier_flags = [];
       }
       return row;
     });
